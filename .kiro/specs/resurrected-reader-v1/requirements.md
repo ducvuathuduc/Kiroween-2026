@@ -36,3 +36,10 @@
 - [x] Search box performs AI SDK `embed` + `cosineSimilarity` semantic ranking (`POST /api/embed`) when an embedding provider is available, falling back cleanly to local keyword search otherwise.
 - [x] 6 sample items bundled so first open looks alive offline; labeled as sample.
 - [x] `npm run build` passes; no console errors on load; no dead buttons; no lorem ipsum.
+
+## Remote MCP access
+
+- [x] Stateless Streamable HTTP at `/mcp` uses `createMcpHandler` from `agents@0.33.0` and `@modelcontextprotocol/server@2.4.0`, with no McpAgent, Durable Object, or stdio transport.
+- [x] Exactly eight Zod-validated tools expose the default live feed catalog: `list_feeds`, `search_items`, `get_item`, `summarize_item`, `semantic_search`, `get_providers`, `daily_briefing`, and `export_kiro_task`. Browser-local subscriptions and read/saved state are not shared with MCP.
+- [x] MCP reuses feed parsing, deterministic scoring, provider fallback, briefing selection, and Kiro spec generation. Failed feeds and missing AI credentials are reported honestly; MCP never substitutes sample items or invented summaries.
+- [x] Tool registration, invalid inputs, and one real-data smoke call per tool are verified before shipping. Provider-backed success requires runtime credentials; the no-provider error/fallback remains testable without secrets.

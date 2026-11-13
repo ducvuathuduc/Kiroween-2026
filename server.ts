@@ -7,6 +7,7 @@ import {
   summarizeWithFallback,
 } from './server/ai.ts'
 import { sanitizeProviderId } from './src/lib/providers.ts'
+import { mcpHandler } from './server/mcp.ts'
 
 const PORT = Number(process.env.PORT) || 3000
 const IS_PROD = process.env.NODE_ENV === 'production'
@@ -129,6 +130,20 @@ async function resolveOgImage(rawUrl: string): Promise<string | null> {
 
 const app = express()
 app.use(express.json({ limit: '192kb' }))
+
+app.all('/mcp', async (req: Request, res: Response) => {
+  const headers = new Headers()
+  for (let index = 0; index < req.rawHeaders.length; index += 2) {
+    headers.append(req.rawHeaders[index], req.rawHeaders[index + 1])
+  }
+  const response = await mcpHandler.fetch(new globalThis.Request(`${req.protocol}://${req.get('host')}${req.originalUrl}`, {
+    method: req.method,
+    headers,
+    body: req.method === 'POST' ? JSON.stringify(req.body) : undefined,
+  }))
+  response.headers.forEach((value, name) => res.setHeader(name, value))
+  res.status(response.status).send(Buffer.from(await response.arrayBuffer()))
+})
 
 app.get('/api/health', (_req: Request, res: Response) => {
   const providers = getProvidersStatus()

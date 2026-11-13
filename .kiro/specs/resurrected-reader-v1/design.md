@@ -40,3 +40,9 @@ score = clamp(0, 100, round(
 
 ## Visual design
 Google Reader 3-pane layout reborn in the Vercel Geist light aesthetic (`#FFFFFF` background, `#171717` ink, `border-zinc-200` hairlines, self-hosted `Geist Variable` / `Geist Mono Variable` typography, `13px` base density, translucent `backdrop-blur-xl` glass TopBar and Dialog modal, real `shadcn/ui` controls, `@ui-sdk/react` `Listbox` keyboard navigation, `Recharts` + `Mermaid` data visualizations, and crisp 150–250ms `motion/react` transitions). Monochrome and editorial, no decorative gradients or rainbow palettes.
+
+## Stateless MCP
+
+`server/mcp.ts` creates a fresh SDK v2 `McpServer` per request through `agents/mcp/server` at `/mcp`, using stateless Streamable HTTP (JSON for modern requests, SSE for legacy-compatible requests). Its Worker-compatible fetch export is also mounted by the local server. All eight tools validate inputs with Zod and return text-encoded JSON; tool failures set `isError` rather than masquerading as successful data.
+
+`server/items.ts` loads the existing `DEFAULT_FEEDS` through rss2json, reuses `parseRss2Json` (no browser DOM dependency), and applies `explainScore`. A five-minute, isolate-local cache reduces upstream traffic without implying durable storage. Partial upstream failures are included in results; total failure raises an error. Item IDs come from the existing parser. The default catalog is public and separate from browser-local state. `daily_briefing` selects the existing top five without automatically generating paid summaries; `semantic_search` uses existing embeddings with an explicit keyword fallback. Summaries require a configured provider and never fabricate an offline AI result.

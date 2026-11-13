@@ -36,6 +36,23 @@ Start the development server with the orb supervisor, not from a lifecycle scrip
 `amp orb service start reader --command 'npm run dev' --portal`.
 Run tests with `node --import tsx --test tests/*.test.ts`.
 
+### MCP access
+
+The server exposes `/mcp` using stateless Streamable HTTP (`agents@0.33.0` and
+`@modelcontextprotocol/server@2.4.0`). Its eight tools are `list_feeds`,
+`search_items`, `get_item`, `summarize_item`, `semantic_search`, `get_providers`,
+`daily_briefing`, and `export_kiro_task`. Search returns current item IDs for
+retrieval, summarization, and Markdown spec export.
+
+MCP reads the three default public feeds, not a browser's local subscriptions or
+saved state. Feed errors are reported; sample articles are never returned.
+AI calls require server credentials and may incur provider charges. Without
+credentials, summaries return an explicit error and semantic search uses keyword
+matching. The test suite smoke-tests all tools with real public RSS data and
+disables AI credentials in its own process to avoid charges, so it needs network
+access but no secrets. Cloudflare runtime configuration follows separately; no
+deployment is performed by these commands.
+
 ## Stack
 
 | Layer | Choice | Why |

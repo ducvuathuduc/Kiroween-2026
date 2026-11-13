@@ -30,3 +30,4 @@
 - [x] 28. Add pure Markdown & JSON backup exports (`src/lib/export.ts`), ReaderPane `Copy Markdown` button, and live Feed Health Dashboard in `/system`.
 - [x] 29. Persist `ReaderSettings` (`density`, `defaultFilter`, `reducedMotion`), add `Switch` primitive, unit test (`tests/production.test.ts`), and verify build, lint, and browser captures.
 - [x] 30. Integrate Vercel AI SDK v7 (`server/ai.ts`, `src/lib/providers.ts`): `GET /api/providers`, `POST /api/summarize` (`generateObject`/`generateText` chain Gemini → OpenAI → Anthropic → Bedrock over direct `@google/genai`), Settings provider picker, and `POST /api/embed` semantic cosine search with keyword fallback.
+- [x] 31. Add the stateless Workers-compatible `/mcp` handler with exactly eight validated tools over real default-feed data and shared business logic; verify tool registration, input rejection, and all eight smoke calls without changing the frontend.
