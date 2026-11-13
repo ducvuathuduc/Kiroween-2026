@@ -39,6 +39,7 @@ interface CommandPaletteProps {
   onSelectView: (view: CommandViewId) => void
   onSelectFeed: (feedId: string) => void
   onSelectItem: (itemId: string) => void
+  onOpenAsk?: (question: string) => void
 }
 
 function targetIcon(target: CommandTarget) {
@@ -66,6 +67,7 @@ export default function CommandPalette({
   onSelectView,
   onSelectFeed,
   onSelectItem,
+  onOpenAsk,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [highlighted, setHighlighted] = useState(0)
@@ -234,6 +236,19 @@ export default function CommandPalette({
             </ul>
           )}
         </ScrollArea>
+
+        {onOpenAsk && (
+          <button
+            type="button"
+            className="border-t border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+            onClick={() => {
+              onOpenAsk(query.trim().slice(0, 500))
+              handleOpenChange(false)
+            }}
+          >
+            Ask today’s public feeds{query.trim() ? ` about “${query.trim().slice(0, 80)}”` : ''}
+          </button>
+        )}
 
         <div className="flex items-center justify-between border-t border-zinc-200 bg-zinc-50/70 px-3.5 py-2 font-mono text-[11px] text-zinc-500">
           <span>↑↓ navigate · Enter open</span>

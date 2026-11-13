@@ -9,6 +9,7 @@ import {
 import { sanitizeProviderId } from './src/lib/providers.ts'
 import { mcpHandler } from './server/mcp.ts'
 import { a2aApp } from './server/a2a.ts'
+import { askResponse } from './server/ask.ts'
 
 interface SummarizeRequestBody {
   title?: unknown
@@ -178,6 +179,8 @@ app.use('*', async (c, next) => {
 })
 
 app.all('/mcp', (c) => mcpHandler.fetch(c.req.raw, { parsedBody: c.get('body') }))
+
+app.post('/api/ask', (c) => askResponse(c.get('body'), c.req.raw.signal))
 
 app.get('/api/health', (c) => {
   const providers = getProvidersStatus()
