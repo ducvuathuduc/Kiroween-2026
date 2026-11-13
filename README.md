@@ -12,8 +12,10 @@ Reading is not the job. The radar reads everything, scores every item 0–100 fo
 npm install
 npm run dev      # local dev server
 npm run build    # typecheck + Worker/client build → dist/worker + dist/client
-npm run preview  # serve the production build
+npm run start    # run the built Worker + assets locally through Wrangler
+npm run preview  # preview through Vite's Cloudflare integration
 npx tsc --noEmit # typecheck only
+npx tsx --test tests/*.test.ts # tests (network required for real-feed smoke)
 npm run lint     # oxlint
 ```
 
@@ -77,9 +79,9 @@ access but no secrets. No deployment is performed by these commands.
 
 ## How it works
 
-1. **Ingest & Pulse** — feeds fetched client-side via `api.rss2json.com` (CORS JSON, primary) with fallback to `api.allorigins.win` / direct CORS + `DOMParser`, plus live **Community Pulse** (HN Top Stories + GitHub `topic:aws` repos) and Google Reader **OPML import/export**.
-2. **Score** — deterministic 0–100: keywords (kiro +25, aws +15, agent/agentic +20, llm/ai coding +15, startup +10, security +10) + recency (today +15, this week +8). Never labeled "AI".
-3. **Triage & Summarize** — sort by score or newest, filters All / High ≥70 / Unread / Saved, search (`/`), keyboard `↑`/`↓` (roving focus), `j`/`k`/`s`/`r`, Web Share, opt-in notifications (`≥85`), and one-click server-side **Gemini TL;DR** summaries.
+1. **Ingest & Pulse** — same-origin `/api/rss` fetches public RSS/Atom XML for browser `DOMParser` parsing, with `api.rss2json.com` then `api.allorigins.win` fallbacks. Live **Community Pulse** uses HN Top Stories + GitHub `topic:aws` repositories. **OPML import/export** restores the Google Reader subscription workflow.
+2. **Score** — four deterministic 0–100 dimensions: **Relevance 42% / Recency 24% / Authority 18% / Novelty 16%**. `explainScore()` exposes matched cues; official-AWS authority uses parsed hostname boundaries. No LLM or API key is involved in scoring.
+3. **Triage & Summarize** — sort by score or newest; filter All / High ≥70 / Unread / Saved; use `/` search, `j`/`k` navigation, `s` summarize, `b` bookmark, `r` refresh, and `Cmd/Ctrl+K` commands. Optional server-side **Gemini → OpenAI → Anthropic → Bedrock** summaries and embedding search use configured providers. Missing credentials produce an explicit summary error and keyword search, never an invented AI result.
 4. **Act** — "→ Kiro task" opens `KiroTaskModal` (glass `Dialog`) to preview `tasks.md`, `requirements.md`, and `design.md`, copy Markdown, or download a ready-to-drop `<slug>-kiro-spec.zip` archive for `.kiro/specs/`.
 
 ## Development workflow
@@ -108,6 +110,21 @@ preview, and start commands are local only; no deploy script is provided.
 For a repeatable local Wrangler smoke test, set `READER_TEST_URL` to the running
 local server's origin and run `npx tsx --test tests/api.test.ts tests/mcp.test.ts`.
 These tests refuse AI-capable calls if that runtime has credentials configured.
+
+### Submission evidence still required
+
+Local verification is not a live deployment or proof of successful paid-provider
+calls. Before submission, verify a real configured provider with the owner's
+approval, record the under-three-minute demo and actual Kiro usage, and confirm
+the final public URL. The owner-supplied deadline is **05:00 Vietnam, 5 December
+2026** (22:00 UTC, 4 December); the live app must remain available through
+**29 January 2027**. No hosting continuity is claimed by this repository.
+
+Before exposing provider-backed endpoints publicly, review access controls,
+rate limits, and provider budgets. The proxy checks hostnames and literal IPs,
+including redirects, but does not resolve DNS to prevent rebinding. See
+[`docs/resurrected-reader-system.md`](docs/resurrected-reader-system.md) for runtime
+boundaries and remaining delivery requirements.
 
 ## License
 

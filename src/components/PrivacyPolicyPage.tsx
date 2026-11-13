@@ -58,7 +58,7 @@ export default function PrivacyPolicyPage({
               <code className="font-mono text-zinc-900">rr.saved</code> — Item IDs you marked read or bookmarked.
             </li>
             <li>
-              <code className="font-mono text-zinc-900">rr.summaries.v1</code> — Cached Gemini TL;DR outputs (up to 30 most recent).
+              <code className="font-mono text-zinc-900">rr.summaries.v1</code> — Cached AI TL;DR outputs (up to 30 most recent).
             </li>
             <li>
               <code className="font-mono text-zinc-900">rr.lastVisit.v1</code> &amp;{' '}
@@ -83,16 +83,17 @@ export default function PrivacyPolicyPage({
           </p>
           <ul className="list-disc space-y-1 pl-5 text-[13px] text-zinc-600">
             <li>
-              <strong>Primary:</strong> Same-origin Express proxy{' '}
+              <strong>Primary:</strong> Same-origin Hono Worker proxy{' '}
               <code className="font-mono text-zinc-900">GET /api/rss?url=...</code>{' '}
-              (enforces public HTTP(S) host checks, a 2 MB limit, and a 5-minute in-memory cache).
+              (checks public HTTP(S) hosts and redirects, truncates XML, and uses a 5-minute in-memory cache).
             </li>
             <li>
               <strong>Client fallbacks:</strong> If the local server route is
               unavailable, the browser falls back to{' '}
               <code className="font-mono text-zinc-900">api.rss2json.com</code>{' '}
               and <code className="font-mono text-zinc-900">api.allorigins.win</code>.
-              Only the target feed URL is transmitted.
+              These services receive the target feed URL and normal network
+              metadata, such as your IP address.
             </li>
             <li>
               <strong>Community Pulse &amp; Cover Art:</strong> Public read-only
@@ -116,10 +117,10 @@ export default function PrivacyPolicyPage({
             optional <code className="font-mono">OPENAI_API_KEY</code>,{' '}
             <code className="font-mono">ANTHROPIC_API_KEY</code>, or AWS Bedrock
             credentials) are configured strictly on the server and are{' '}
-            <strong>never</strong> bundled, logged, or sent to client code.{' '}
-            <code className="font-mono">GET /api/providers</code> returns only
-            boolean availability flags so Settings only unlocks providers whose
-            key exists server-side.
+            <strong>never</strong> included in the client bundle or provider
+            discovery response. <code className="font-mono">GET /api/providers</code>{' '}
+            reports availability and model metadata so Settings only unlocks
+            configured providers.
           </p>
           <p>
             When you summarize an article (<kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[11px]">s</kbd>),
@@ -129,6 +130,14 @@ export default function PrivacyPolicyPage({
             only the query and public article titles/snippets are embedded for
             cosine similarity ranking; if no embedding key is configured, search
             stays 100% browser-local via keyword matching.
+          </p>
+          <p>
+            The stateless <code className="font-mono">/mcp</code> endpoint serves
+            the default public feed catalog, not your browser-local reading
+            state. Its AI tools send article content or search inputs to
+            configured providers and may incur charges. Hosting, proxy, and AI
+            services may retain request logs under their own policies; clearing
+            browser storage does not erase those external logs.
           </p>
         </section>
 

@@ -19,7 +19,7 @@ const TOC_ITEMS = [
   { id: 'opml', label: 'OPML import & export' },
   { id: 'kiro-export', label: 'Kiro task & .zip export' },
   { id: 'shortcuts', label: 'Keyboard shortcuts' },
-  { id: 'mcp-tools', label: 'AWS Docs MCP tools' },
+  { id: 'mcp-tools', label: 'Reader & AWS Docs MCP' },
 ]
 
 export default function DocsPage({
@@ -90,7 +90,7 @@ export default function DocsPage({
                 },
                 {
                   title: 'Daily Briefing (/briefing)',
-                  body: 'Synthesizes the top 5 highest-signal reads into structured Gemini TL;DRs with key takeaways.',
+                  body: 'Selects the top 5 highest-signal reads and generates TL;DRs when an AI provider is configured.',
                   route: 'briefing' as const,
                 },
                 {
@@ -146,9 +146,9 @@ export default function DocsPage({
             </p>
             <ul className="list-disc space-y-1.5 pl-5 text-[13px] text-zinc-600">
               <li>
-                <strong>Primary bridge:</strong> Same-origin Express route{' '}
+                <strong>Primary bridge:</strong> Same-origin Hono Worker route{' '}
                 <code className="font-mono">GET /api/rss?url=...</code> with
-                public-host SSRF validation, a 2 MB size cap, and a 5-minute TTL
+                public-host and redirect validation, XML truncation, and a 5-minute TTL
                 cache.
               </li>
               <li>
@@ -156,7 +156,7 @@ export default function DocsPage({
                 <code className="font-mono">api.rss2json.com</code> and{' '}
                 <code className="font-mono">api.allorigins.win</code>{' '}
                 <code className="font-mono">DOMParser</code> if the local route
-                is unavailable in static hosting.
+                is unavailable. API and MCP features require the Worker runtime.
               </li>
               <li>
                 <strong>Media extraction:</strong> Extracts real post covers
@@ -352,10 +352,19 @@ export default function DocsPage({
 
           <section id="mcp-tools" className="space-y-3 scroll-mt-6">
             <h2 className="text-lg font-semibold tracking-tight text-zinc-950">
-              8. AWS Documentation MCP tools
+              8. Reader &amp; AWS Documentation MCP tools
             </h2>
             <p className="text-[13.5px] leading-relaxed text-zinc-700">
-              This repository configures the official AWS Documentation MCP
+              Connect a Streamable HTTP MCP client to this app’s{' '}
+              <code className="font-mono">/mcp</code> endpoint for eight tools:
+              list feeds, search/get items, summarize, semantic search, discover
+              providers, daily briefing, and Kiro task export. Tools use real
+              default feeds, not your browser-local subscriptions or saved state.
+              AI tools require server credentials and may incur provider charges;
+              missing providers return explicit errors or keyword fallback.
+            </p>
+            <p className="text-[13.5px] leading-relaxed text-zinc-700">
+              Separately, this repository configures the AWS Documentation MCP
               server inside{' '}
               <code className="font-mono">.kiro/settings/mcp.json</code> so
               exported specs can verify live AWS APIs, quotas, and IAM guidance

@@ -304,7 +304,7 @@ async function fetchXmlViaUrl(
 
 /**
  * Fetch an RSS/Atom feed:
- * 1. Primary: same-origin Express proxy (/api/rss?url=...) for reliable server-side XML fetch
+ * 1. Primary: same-origin Hono Worker proxy (/api/rss?url=...) for server-side XML fetch
  * 2. Fallback: api.rss2json.com (CORS-enabled JSON bridge)
  * 3. Fallback: api.allorigins.win raw XML proxy + DOMParser
  */

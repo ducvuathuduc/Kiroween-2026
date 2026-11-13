@@ -37,9 +37,9 @@ export const SYSTEM_PIPELINE_MERMAID = `flowchart LR
   A[RSS / Atom & Community Pulse] --> B[Extract Media & Normalize UTC]
   B --> C[4D Deterministic Score]
   C -->|Relevance 42% · Recency 24% · Authority 18% · Novelty 16%| D[Signal Radar & Reader]
-  D -->|High Signal >= 70| E[Gemini TL;DR via /api/summarize]
+  D -->|Optional AI| E[AI TL;DR via /api/summarize]
   D --> F[Kiro Spec Bundle .zip]
-  F --> G[AWS Docs MCP Search & Ship]`
+  F --> G[AWS Docs MCP in Kiro]`
 
 interface SignalRadarViewProps {
   mode: 'radar' | 'system'
@@ -239,7 +239,7 @@ export default function SignalRadarView({
 
         <MermaidDiagram
           chart={SYSTEM_PIPELINE_MERMAID}
-          caption="End-to-end deterministic scoring, Gemini TL;DR summarization, and Kiro spec generation pipeline."
+          caption="End-to-end deterministic scoring, optional multi-provider AI summarization, and Kiro spec generation pipeline."
         />
 
             <section aria-label="Deterministic scoring weights">
@@ -315,12 +315,12 @@ export default function SignalRadarView({
                 </div>
                 <div>
                   <p className="font-semibold text-zinc-950">
-                    Server-Side Gemini TL;DR
+                    Server-Side AI TL;DR
                   </p>
                   <p className="mt-1 leading-relaxed text-zinc-600">
-                    Express route <code className="font-mono">POST /api/summarize</code>{' '}
-                    calls <code className="font-mono">@google/genai</code>{' '}
-                    without exposing secrets to the browser.
+                    Hono Worker route <code className="font-mono">POST /api/summarize</code>{' '}
+                    uses AI SDK v7 with configured-provider fallback, keeping
+                    credentials server-side.
                   </p>
                 </div>
                 <div>

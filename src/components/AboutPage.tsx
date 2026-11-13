@@ -27,8 +27,8 @@ export default function AboutPage({ onNavigate }: AboutPageProps) {
         <p className="mt-2.5 max-w-2xl text-[14px] leading-relaxed text-zinc-600">
           Resurrected Reader is a <strong>Kiroween 2026 (Resurrection)</strong>{' '}
           entry built by <strong>Huỳnh Diệu Thành (VTech Studio)</strong>. It
-          brings back the calm 3-pane speed of classic Google Reader—reborn as a
-          deterministic AI reading radar that turns high-signal engineering
+          brings back the calm 3-pane speed of classic Google Reader—reborn as an
+          AI-assisted reading radar with transparent scores that turns engineering
           posts into ready-to-ship Kiro specs.
         </p>
         <div className="mt-5 flex flex-wrap items-center gap-2.5">
@@ -77,7 +77,7 @@ export default function AboutPage({ onNavigate }: AboutPageProps) {
             {
               step: '03. Reading into shipping',
               detail:
-                'High-signal reads convert directly into Gemini TL;DRs and downloadable 3-file Kiro spec bundles (.zip) ready for .kiro/specs/ and aws-docs MCP.',
+                'High-signal reads convert into optional multi-provider AI TL;DRs and downloadable 3-file Kiro spec bundles (.zip) ready for .kiro/specs/ and aws-docs MCP.',
             },
           ].map((card) => (
             <div
@@ -105,7 +105,7 @@ export default function AboutPage({ onNavigate }: AboutPageProps) {
           {[
             ['Interface', 'React 19 · TypeScript strict · Tailwind CSS v4 · shadcn/ui (Radix)'],
             ['Typography & Motion', 'Self-hosted Geist & Geist Mono Variable · motion/react · @ui-sdk/react Listbox'],
-            ['Server Proxy & AI', 'Express (/api/rss, /api/og-images, /api/summarize via @google/genai)'],
+            ['Server Proxy & AI', 'Hono · Cloudflare Workers + Static Assets · AI SDK v7 · /mcp'],
             ['Visualizations & Specs', 'Recharts · Mermaid · PKZIP CRC-32 export · Spec Kit & Kiro (.kiro/)'],
             ['License & Author', 'MIT License · Huỳnh Diệu Thành (VTech Studio)'],
           ].map(([k, v]) => (

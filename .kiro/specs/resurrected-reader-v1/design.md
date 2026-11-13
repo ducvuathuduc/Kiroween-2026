@@ -60,3 +60,7 @@ Both RSS and OpenGraph use the same canonical URL check and manual redirect loop
 ## Source authority boundaries
 
 `explainScore` parses an article link with the native URL API and checks its HTTP(S) hostname, allowing `aws.amazon.com` and dot-delimited subdomains (case-insensitive, with an optional DNS trailing dot). If no link exists, `aws-news` and `aws-ml` remain recognized catalog sources. A supplied link takes precedence over that fallback, and arbitrary `aws*` IDs or URL substrings confer no authority bonus. Relevance, recency, novelty, weights, and the 70-point high-signal threshold are unchanged.
+
+## Documentation consistency
+
+Update the existing repository documentation and help-page copy in place, retaining CSS, layout, navigation, and interactions. Distinguish deterministic scoring from optional AI, browser-local state from server caches/MCP's public catalog, and local builds from a live deployment. The Docs MCP section explains the reader's HTTP endpoint separately from the AWS Documentation MCP configuration. Privacy copy identifies feed/proxy/provider recipients without promising that third parties receive no network metadata. Existing historical changelog entries remain historical rather than being rewritten as current architecture.
