@@ -1,4 +1,5 @@
 import { safeHttpUrl } from './format'
+import type { SignalDimensions } from './scoring'
 
 export interface FeedItem {
   id: string
@@ -12,8 +13,12 @@ export interface FeedItem {
   description: string
   /** Raw feed HTML description, always sanitized via Sanitizer API / DOMPurify before rendering */
   descriptionHtml?: string
+  /** Optional real image extracted from RSS media:content / media:thumbnail / enclosure / og:image / HTML */
+  imageUrl?: string
   /** 0-100 deterministic signal score, set after scoring */
   score?: number
+  /** Deterministic 4-dimension breakdown (0-100 each) */
+  scoreDimensions?: SignalDimensions
   /** True when this item comes from the bundled offline sample set */
   sample?: boolean
 }
@@ -41,6 +46,13 @@ export const DEFAULT_FEEDS: FeedSource[] = [
 const RSS2JSON_ENDPOINT = 'https://api.rss2json.com/v1/api.json?rss_url='
 const ALLORIGINS_ENDPOINT = 'https://api.allorigins.win/raw?url='
 
+interface Rss2JsonEnclosure {
+  link?: unknown
+  url?: unknown
+  thumbnail?: unknown
+  type?: unknown
+}
+
 interface Rss2JsonItem {
   title?: unknown
   pubDate?: unknown
@@ -48,12 +60,108 @@ interface Rss2JsonItem {
   guid?: unknown
   description?: unknown
   content?: unknown
+  thumbnail?: unknown
+  enclosure?: unknown
 }
 
 export interface Rss2JsonResponse {
   status?: unknown
   message?: unknown
   items?: unknown
+}
+
+const IMAGE_EXT_RE = /\.(png|jpe?g|webp|gif|avif)(\?.*)?$/i
+const TRACKER_IMG_RE = /(1x1|pixel|spacer|blank\.gif|gravatar\.com\/avatar\/000)/i
+
+function validFeedImage(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  const safe = safeHttpUrl(raw)
+  if (!safe || TRACKER_IMG_RE.test(safe)) return undefined
+  return safe
+}
+
+export function extractImageFromHtml(html: string): string | undefined {
+  if (!html) return undefined
+  const matches = html.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)
+  for (const match of matches) {
+    const tag = match[0] ?? ''
+    if (/\bwidth=["']?1["']?/i.test(tag) || /\bheight=["']?1["']?/i.test(tag)) {
+      continue
+    }
+    const candidate = validFeedImage(match[1])
+    if (candidate) return candidate
+  }
+  return undefined
+}
+
+function extractRss2JsonEnclosureImage(enclosure: unknown): string | undefined {
+  if (!enclosure) return undefined
+  if (Array.isArray(enclosure)) {
+    for (const entry of enclosure) {
+      const found = extractRss2JsonEnclosureImage(entry)
+      if (found) return found
+    }
+    return undefined
+  }
+  if (typeof enclosure !== 'object') return undefined
+  const enc = enclosure as Rss2JsonEnclosure
+  const fromThumb = validFeedImage(enc.thumbnail)
+  if (fromThumb) return fromThumb
+  const type = typeof enc.type === 'string' ? enc.type.toLowerCase() : ''
+  const rawUrl =
+    typeof enc.link === 'string'
+      ? enc.link
+      : typeof enc.url === 'string'
+        ? enc.url
+        : ''
+  if (type.startsWith('image/') || IMAGE_EXT_RE.test(rawUrl)) {
+    return validFeedImage(rawUrl)
+  }
+  return undefined
+}
+
+function extractXmlElementImage(el: Element, rawHtml: string): string | undefined {
+  // 1. media:content / media:thumbnail
+  const mediaTags = [
+    ...el.getElementsByTagName('media:content'),
+    ...el.getElementsByTagName('media:thumbnail'),
+  ]
+  for (const tag of mediaTags) {
+    const medium = (tag.getAttribute('medium') ?? '').toLowerCase()
+    const type = (tag.getAttribute('type') ?? '').toLowerCase()
+    const url = tag.getAttribute('url') ?? ''
+    if (
+      !medium ||
+      medium === 'image' ||
+      type.startsWith('image/') ||
+      IMAGE_EXT_RE.test(url)
+    ) {
+      const candidate = validFeedImage(url)
+      if (candidate) return candidate
+    }
+  }
+
+  // 2. enclosure
+  const enclosures = [...el.querySelectorAll('enclosure')]
+  for (const enc of enclosures) {
+    const type = (enc.getAttribute('type') ?? '').toLowerCase()
+    const url = enc.getAttribute('url') ?? ''
+    if (type.startsWith('image/') || IMAGE_EXT_RE.test(url)) {
+      const candidate = validFeedImage(url)
+      if (candidate) return candidate
+    }
+  }
+
+  // 3. XML og:image / image tag if present
+  const ogText =
+    el.getElementsByTagName('og:image')[0]?.textContent ??
+    el.querySelector('image > url')?.textContent ??
+    ''
+  const fromOg = validFeedImage(ogText)
+  if (fromOg) return fromOg
+
+  // 4. First real <img> inside description / content:encoded
+  return extractImageFromHtml(rawHtml)
 }
 
 export function normalizeDate(rawDate: string): string {
@@ -105,6 +213,10 @@ export function parseRss2Json(
     const rawContent = typeof entry.content === 'string' ? entry.content : ''
     const rawHtml = rawContent || rawDescription
     const link = safeHttpUrl(rawLink) ?? ''
+    const imageUrl =
+      validFeedImage(entry.thumbnail) ??
+      extractRss2JsonEnclosureImage(entry.enclosure) ??
+      extractImageFromHtml(rawHtml)
 
     return {
       id: `${source.id}-${i}-${link || guid || rawTitle}`,
@@ -115,6 +227,7 @@ export function parseRss2Json(
       pubDate: normalizeDate(rawPubDate),
       description: stripHtml(rawDescription || rawContent),
       descriptionHtml: rawHtml || undefined,
+      imageUrl,
     }
   })
 }
@@ -145,6 +258,7 @@ export function parseFeed(xml: string, source: FeedSource): FeedItem[] {
       text('description') ||
       text('summary') ||
       text('content')
+    const imageUrl = extractXmlElementImage(el, rawHtml)
     return {
       id: `${source.id}-${i}-${link || text('guid') || text('title')}`,
       feedId: source.id,
@@ -154,6 +268,7 @@ export function parseFeed(xml: string, source: FeedSource): FeedItem[] {
       pubDate,
       description: stripHtml(rawHtml),
       descriptionHtml: rawHtml || undefined,
+      imageUrl,
     }
   })
 }
@@ -188,31 +303,38 @@ async function fetchXmlViaUrl(
 }
 
 /**
- * Fetch an RSS/Atom feed client-side without API keys:
- * 1. Primary: api.rss2json.com (CORS-enabled JSON bridge)
- * 2. Fallback: api.allorigins.win raw XML proxy + DOMParser
- * 3. Fallback: direct CORS fetch + DOMParser (works on CORS-enabled feeds)
+ * Fetch an RSS/Atom feed:
+ * 1. Primary: same-origin Express proxy (/api/rss?url=...) for reliable server-side XML fetch
+ * 2. Fallback: api.rss2json.com (CORS-enabled JSON bridge)
+ * 3. Fallback: api.allorigins.win raw XML proxy + DOMParser
  */
 export async function fetchFeed(source: FeedSource): Promise<FeedItem[]> {
   let primaryError: unknown
+
+  try {
+    const items = await fetchXmlViaUrl(
+      `/api/rss?url=${encodeURIComponent(source.url)}`,
+      source,
+      7000,
+    )
+    if (items.length > 0) return items
+    primaryError = new Error(`No items returned for ${source.title}`)
+  } catch (err) {
+    primaryError = err
+  }
+
   try {
     return await fetchViaRss2Json(source)
   } catch (err) {
-    primaryError = err
+    if (!primaryError) primaryError = err
   }
 
   try {
     return await fetchXmlViaUrl(
       ALLORIGINS_ENDPOINT + encodeURIComponent(source.url),
       source,
-      4000,
+      4500,
     )
-  } catch {
-    // Fall through to direct CORS fetch
-  }
-
-  try {
-    return await fetchXmlViaUrl(source.url, source, 4000)
   } catch (fallbackErr) {
     if (primaryError instanceof Error) throw primaryError
     throw fallbackErr

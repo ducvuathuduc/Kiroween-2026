@@ -1,5 +1,6 @@
 import type { FeedItem } from './feeds'
-import { scoreItem } from './scoring'
+import { safeHttpUrl } from './format'
+import { explainScore } from './scoring'
 
 export type PulseChannel = 'hn' | 'github'
 
@@ -20,7 +21,7 @@ export interface PulseSnapshot {
   }
 }
 
-const PULSE_STORAGE_KEY = 'rr.pulse.v1'
+const PULSE_STORAGE_KEY = 'rr.pulse.v2'
 const PULSE_TTL_MS = 30 * 60_000
 let sessionFetched = false
 
@@ -80,6 +81,9 @@ interface GithubRepoRaw {
   language: string | null
   created_at: string
   topics?: string[]
+  owner?: {
+    avatar_url?: string
+  }
 }
 
 export function mapHnStory(story: HnStoryRaw): PulseItem | null {
@@ -93,6 +97,11 @@ export function mapHnStory(story: HnStoryRaw): PulseItem | null {
     story.url || `https://news.ycombinator.com/item?id=${story.id}`
   const discussionUrl = `https://news.ycombinator.com/item?id=${story.id}`
   const description = `Hacker News story by ${story.by ?? 'builder'} with ${points} points and ${comments} comments. Discussion: ${discussionUrl}`
+  const breakdown = explainScore(story.title, description, pubDate, {
+    feedId: 'pulse-hn',
+    feedTitle: 'HN Top Stories',
+    link,
+  })
   return {
     id: `pulse-hn-${story.id}`,
     feedId: 'pulse-hn',
@@ -101,7 +110,8 @@ export function mapHnStory(story: HnStoryRaw): PulseItem | null {
     link,
     pubDate,
     description,
-    score: scoreItem(story.title, description, pubDate),
+    score: breakdown.score,
+    scoreDimensions: breakdown.dimensions,
     pulseChannel: 'hn',
     metricLabel: `${points} pts · ${comments} cmt`,
     metaNote: story.by ? `by ${story.by}` : undefined,
@@ -113,6 +123,15 @@ export function mapGithubRepo(repo: GithubRepoRaw): PulseItem {
   const desc = repo.description?.trim() || 'Open-source AWS repository on GitHub.'
   const topics = Array.isArray(repo.topics) ? repo.topics.slice(0, 6).join(', ') : 'aws'
   const fullDesc = `${desc} (Topics: ${topics}. Language: ${repo.language ?? 'Multi-language'}. ${repo.stargazers_count} stars on GitHub.)`
+  const breakdown = explainScore(`${repo.full_name} aws`, fullDesc, pubDate, {
+    feedId: 'pulse-github',
+    feedTitle: 'GitHub AWS',
+    link: repo.html_url,
+  })
+  const imageUrl = repo.owner?.avatar_url
+    ? safeHttpUrl(repo.owner.avatar_url) ?? undefined
+    : undefined
+
   return {
     id: `pulse-gh-${repo.id}`,
     feedId: 'pulse-github',
@@ -121,7 +140,9 @@ export function mapGithubRepo(repo: GithubRepoRaw): PulseItem {
     link: repo.html_url,
     pubDate,
     description: fullDesc,
-    score: scoreItem(`${repo.full_name} aws`, fullDesc, pubDate),
+    imageUrl,
+    score: breakdown.score,
+    scoreDimensions: breakdown.dimensions,
     pulseChannel: 'github',
     metricLabel: `★ ${repo.stargazers_count.toLocaleString()}`,
     metaNote: repo.language ?? undefined,

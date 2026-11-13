@@ -13,11 +13,15 @@
 
 - [x] Add feed validates http(s) URL, fetches it, shows items; invalid URL shows an inline error, no crash.
 - [x] A feed that fails to fetch shows a per-feed error; other feeds keep working.
-- [x] Signal score 0–100, deterministic: keyword weights (kiro +25, aws +15, agent/agentic +20, llm/ai coding +15, startup +10, security +10) + recency (today +15, this week +8), capped at 100.
+- [x] Signal score 0–100, deterministic across 4 normalized dimensions (relevance 42%, recency 24%, authority 18%, novelty 16%), calibrated so high-signal real AWS/AI items land ≥70.
 - [x] List sorted by score desc, then date desc. High-signal filter shows only ≥70.
-- [x] Clicking an item opens it in the reader pane and marks it read.
+- [x] Real feed image extraction (`media:content`, `media:thumbnail`, `enclosure`, `og:image`, RSS HTML `<img>`, and cached server-side `og:image` enrichment) rendered as thumbnails in the list and cover image in the reader pane, with a monogram tile fallback (never broken images).
+- [x] Compact visual list rows showing thumbnail, title, score badge, and one-line summary (prioritizing Gemini TL;DR first line when available).
+- [x] Clicking an item opens it in the reader pane with animated score count-up and marks it read.
 - [x] Save/Unsave, Mark unread, Refresh all work. Refresh re-fetches all feeds and updates the timestamp.
-- [x] "→ Kiro task" shows a 3-file spec preview (`tasks.md`, `requirements.md`, `design.md`), copies Markdown to clipboard, and downloads a `<slug>-kiro-spec.zip` bundle; AWS Docs MCP registered in `.kiro/settings/mcp.json`.
+- [x] Signal Radar view (Recharts): score distribution histogram, per-feed activity chart, and 4-dimension radar/spider chart per item built from live data.
+- [x] System architecture view & modal pipeline tab: Mermaid diagram (`feed → score → action pipeline`) rendered cleanly in monochrome.
+- [x] "→ Kiro task" shows a 3-file spec preview (`tasks.md`, `requirements.md`, `design.md`) plus item pipeline Mermaid tab, copies Markdown to clipboard, and downloads a `<slug>-kiro-spec.zip` bundle; AWS Docs MCP registered in `.kiro/settings/mcp.json`.
 - [x] "Summarize" generates a structured Gemini TL;DR via server-side `POST /api/summarize` without exposing `GEMINI_API_KEY`.
 - [x] Community Pulse displays live Hacker News top stories and GitHub `topic:aws` repositories with `localStorage` + session caching.
 - [x] OPML import/export (Google Reader `.opml`), Web Share (`navigator.share` + clipboard fallback), and high-signal notifications (`≥85`) work natively.

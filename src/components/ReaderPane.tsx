@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import {
+  Activity,
   Check,
   ExternalLink,
   RotateCcw,
@@ -18,6 +19,8 @@ import {
 } from '../lib/format'
 import type { GeminiSummary } from '../lib/kiroTask'
 import { explainScore } from '../lib/scoring'
+import AnimatedScore from './AnimatedScore'
+import ItemThumbnail from './ItemThumbnail'
 import KiroTaskModal from './KiroTaskModal'
 import SafeHtml from './SafeHtml'
 import { Avatar, AvatarFallback } from './ui/avatar'
@@ -39,6 +42,7 @@ interface ReaderPaneProps {
   onShare: (item: FeedItem) => Promise<'shared' | 'copied' | 'cancelled'>
   onToggleSave: (id: string) => void
   onMarkUnread: (id: string) => void
+  onOpenRadar?: () => void
 }
 
 export default function ReaderPane({
@@ -51,6 +55,7 @@ export default function ReaderPane({
   onShare,
   onToggleSave,
   onMarkUnread,
+  onOpenRadar,
 }: ReaderPaneProps) {
   const [modalOpen, setModalOpen] = useState(false)
   const [shareStatus, setShareStatus] = useState('')
@@ -100,8 +105,13 @@ export default function ReaderPane({
 
   const originalUrl = safeHttpUrl(item.link)
   const summary = summarize(item.description)
-  const breakdown = explainScore(item.title, item.description, item.pubDate)
+  const breakdown = explainScore(item.title, item.description, item.pubDate, {
+    feedId: item.feedId,
+    feedTitle: item.feedTitle,
+    link: item.link,
+  })
   const score = item.score ?? breakdown.score
+  const dims = item.scoreDimensions ?? breakdown.dimensions
   const metricLabel =
     'metricLabel' in item && typeof item.metricLabel === 'string'
       ? item.metricLabel
@@ -130,13 +140,21 @@ export default function ReaderPane({
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={item.id}
-            initial={{ opacity: 0, y: 4 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -2 }}
-            transition={{ duration: 0.16, ease: 'easeOut' }}
-            className="mx-auto max-w-2xl px-8 py-8"
+            exit={{ opacity: 0, y: -3 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="mx-auto max-w-3xl px-6 py-7 sm:px-8 sm:py-8"
           >
             <article>
+              <ItemThumbnail
+                src={item.imageUrl}
+                title={item.title}
+                feedTitle={item.feedTitle}
+                variant="cover"
+                className="mb-5"
+              />
+
               {item.sample && (
                 <Badge
                   variant="outline"
@@ -175,14 +193,15 @@ export default function ReaderPane({
                   <HoverCardTrigger asChild>
                     <button
                       type="button"
+                      onClick={onOpenRadar}
                       aria-label={`Signal score ${score} breakdown`}
-                      className="inline-flex cursor-help items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+                      className="inline-flex cursor-pointer items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
                     >
                       <Badge
                         variant="outline"
-                        className={`rounded-md font-mono text-[11px] font-medium tabular-nums ${scoreBadgeClass(score)}`}
+                        className={`gap-1 rounded-md font-mono text-[11px] font-medium tabular-nums ${scoreBadgeClass(score)}`}
                       >
-                        {score} signal
+                        <AnimatedScore value={score} /> signal
                       </Badge>
                     </button>
                   </HoverCardTrigger>
@@ -190,33 +209,34 @@ export default function ReaderPane({
                     side="bottom"
                     align="start"
                     sideOffset={6}
-                    className="pointer-events-none w-64 p-3"
+                    className="pointer-events-none w-72 p-3"
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-zinc-950">
-                        Deterministic signal score
+                        4D Deterministic Signal
                       </span>
-                      <span className="font-mono text-xs font-semibold text-zinc-950">
+                      <span className="font-mono text-xs font-semibold tabular-nums text-zinc-950">
                         {score}/100
                       </span>
                     </div>
                     <p className="mt-1 text-[11px] text-zinc-500">
-                      Keyword & recency formula (no LLM).
+                      Rel {dims.relevance} · Rec {dims.recency} · Auth{' '}
+                      {dims.authority} · Nov {dims.novelty}
                     </p>
                     <Separator className="my-2" />
                     {breakdown.reasons.length === 0 ? (
                       <p className="text-xs text-zinc-500">
-                        No tracked keywords or recent boost matched.
+                        Baseline recency & source weights applied.
                       </p>
                     ) : (
                       <ul className="space-y-1 text-xs">
-                        {breakdown.reasons.map((r) => (
+                        {breakdown.reasons.slice(0, 5).map((r) => (
                           <li
-                            key={r.label}
+                            key={`${r.dimension}-${r.label}`}
                             className="flex items-center justify-between text-zinc-700"
                           >
-                            <span>{r.label}</span>
-                            <span className="font-mono text-zinc-950">
+                            <span className="truncate">{r.label}</span>
+                            <span className="ml-2 shrink-0 font-mono tabular-nums text-zinc-950">
                               +{r.points}
                             </span>
                           </li>
@@ -225,13 +245,26 @@ export default function ReaderPane({
                     )}
                   </HoverCardContent>
                 </HoverCard>
+
+                {onOpenRadar && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={onOpenRadar}
+                    className="h-6 gap-1 px-1.5 text-[11px] text-zinc-500 hover:text-zinc-950"
+                  >
+                    <Activity aria-hidden="true" className="size-3" />
+                    4D chart
+                  </Button>
+                )}
               </div>
 
               <h1 className="mt-3 text-[20px] leading-snug font-semibold tracking-tight text-zinc-950">
                 {item.title}
               </h1>
 
-              <div className="mt-5 flex flex-wrap items-center gap-2">
+              <div className="mt-5 flex flex-wrap items-center gap-1.5">
                 <Button
                   type="button"
                   size="sm"

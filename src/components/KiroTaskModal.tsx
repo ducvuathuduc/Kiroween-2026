@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, Download } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { FeedItem } from '../lib/feeds'
@@ -9,6 +9,7 @@ import {
   downloadKiroSpecZip,
   type GeminiSummary,
 } from '../lib/kiroTask'
+import MermaidDiagram from './MermaidDiagram'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import {
@@ -22,7 +23,7 @@ import {
 import { ScrollArea } from './ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs'
 
-type SpecFileTab = 'tasks' | 'requirements' | 'design'
+type SpecFileTab = 'tasks' | 'requirements' | 'design' | 'pipeline'
 
 function legacyCopy(text: string): boolean {
   const field = Object.assign(document.createElement('textarea'), {
@@ -80,16 +81,34 @@ export default function KiroTaskModal({
   }, [])
 
   const bundle = item ? buildKiroSpecBundle(item, geminiSummary) : null
+  const score = item?.score ?? 0
+
+  const itemPipelineChart = useMemo(() => {
+    if (!item || !bundle) return ''
+    const safeFeed = item.feedTitle.replace(/["[\]]/g, '')
+    const aiNode = geminiSummary
+      ? 'E[Gemini TL;DR Embedded]'
+      : 'E[Extractive Context]'
+    return `flowchart LR
+  A["${safeFeed}"] --> B["4D Score: ${score}/100"]
+  B --> ${aiNode}
+  ${aiNode.split('[')[0]} --> F[".kiro/specs/${bundle.slug}/"]
+  F --> G["aws-docs MCP Verified Build"]`
+  }, [item, bundle, geminiSummary, score])
+
   const activeContent = (() => {
     if (!item || !bundle) return ''
     if (activeTab === 'requirements') return bundle.requirements
     if (activeTab === 'design') return bundle.design
+    if (activeTab === 'pipeline') return itemPipelineChart
     return buildKiroTask(item)
   })()
+
   const specPath = bundle
-    ? `.kiro/specs/${bundle.slug}/${activeTab}.md`
+    ? activeTab === 'pipeline'
+      ? `.kiro/specs/${bundle.slug}/pipeline.mmd`
+      : `.kiro/specs/${bundle.slug}/${activeTab}.md`
     : ''
-  const score = item?.score ?? 0
 
   const announce = (msg: string) => {
     if (timerRef.current !== null) {
@@ -159,9 +178,9 @@ export default function KiroTaskModal({
                 Kiro spec export preview
               </DialogTitle>
               <DialogDescription className="text-[13px] text-zinc-500">
-                Preview all 3 spec files, copy Markdown, or download a .zip
-                folder ready for <code className="font-mono">.kiro/specs/</code>
-                .
+                Preview all 3 spec files and pipeline diagram, copy Markdown, or
+                download a .zip ready for{' '}
+                <code className="font-mono">.kiro/specs/</code>.
               </DialogDescription>
             </DialogHeader>
 
@@ -170,41 +189,54 @@ export default function KiroTaskModal({
                 value={activeTab}
                 onValueChange={(v) => setActiveTab(v as SpecFileTab)}
               >
-                <TabsList className="grid h-8 w-full grid-cols-3 bg-zinc-200/60 p-0.5">
+                <TabsList className="grid h-8 w-full grid-cols-4 bg-zinc-200/60 p-0.5">
                   <TabsTrigger
                     value="tasks"
-                    className="h-7 font-mono text-xs data-[state=active]:bg-white"
+                    className="h-7 font-mono text-[11px] data-[state=active]:bg-white sm:text-xs"
                   >
                     tasks.md
                   </TabsTrigger>
                   <TabsTrigger
                     value="requirements"
-                    className="h-7 font-mono text-xs data-[state=active]:bg-white"
+                    className="h-7 font-mono text-[11px] data-[state=active]:bg-white sm:text-xs"
                   >
                     requirements.md
                   </TabsTrigger>
                   <TabsTrigger
                     value="design"
-                    className="h-7 font-mono text-xs data-[state=active]:bg-white"
+                    className="h-7 font-mono text-[11px] data-[state=active]:bg-white sm:text-xs"
                   >
                     design.md
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="pipeline"
+                    className="h-7 font-mono text-[11px] data-[state=active]:bg-white sm:text-xs"
+                  >
+                    pipeline
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
             </div>
 
             <ScrollArea className="max-h-[50vh] px-6 py-4">
-              <div className="overflow-hidden rounded-md border border-zinc-200 bg-zinc-50">
-                <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-3.5 py-2 font-mono text-[11px] text-zinc-500">
-                  <span className="truncate">{specPath}</span>
-                  <span className="shrink-0 text-zinc-400">Markdown</span>
+              {activeTab === 'pipeline' ? (
+                <MermaidDiagram
+                  chart={itemPipelineChart}
+                  caption={`Spec generation path for ${bundle.slug}`}
+                />
+              ) : (
+                <div className="overflow-hidden rounded-md border border-zinc-200 bg-zinc-50">
+                  <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-3.5 py-2 font-mono text-[11px] text-zinc-500">
+                    <span className="truncate">{specPath}</span>
+                    <span className="shrink-0 text-zinc-400">Markdown</span>
+                  </div>
+                  <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-zinc-800">
+                    <code id="kiro-task-spec" className="whitespace-pre-wrap">
+                      {activeContent}
+                    </code>
+                  </pre>
                 </div>
-                <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-zinc-800">
-                  <code id="kiro-task-spec" className="whitespace-pre-wrap">
-                    {activeContent}
-                  </code>
-                </pre>
-              </div>
+              )}
             </ScrollArea>
 
             <DialogFooter className="items-center justify-between border-t border-zinc-200 px-6 py-3.5 sm:justify-between">
@@ -251,7 +283,7 @@ export default function KiroTaskModal({
                   {copyState === 'copied' ? (
                     <>
                       <Check aria-hidden="true" className="size-3.5" />
-                      Copied Markdown
+                      Copied
                     </>
                   ) : copyState === 'failed' ? (
                     <>
@@ -261,7 +293,9 @@ export default function KiroTaskModal({
                   ) : (
                     <>
                       <Copy aria-hidden="true" className="size-3.5" />
-                      Copy Markdown
+                      {activeTab === 'pipeline'
+                        ? 'Copy Mermaid'
+                        : 'Copy Markdown'}
                     </>
                   )}
                 </Button>

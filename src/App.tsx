@@ -3,7 +3,8 @@ import { MotionConfig } from 'motion/react'
 import FeedList from './components/FeedList'
 import ItemList, { type Filter } from './components/ItemList'
 import ReaderPane from './components/ReaderPane'
-import TopBar, { type SortBy } from './components/TopBar'
+import SignalRadarView from './components/SignalRadarView'
+import TopBar, { type AppView, type SortBy } from './components/TopBar'
 import { TooltipProvider } from './components/ui/tooltip'
 import {
   DEFAULT_FEEDS,
@@ -15,7 +16,7 @@ import type { GeminiSummary } from './lib/kiroTask'
 import { downloadOpml, parseOpml } from './lib/opml'
 import { fetchCommunityPulse, type PulseSnapshot } from './lib/pulse'
 import { getSampleItems } from './lib/sampleData'
-import { scoreItem } from './lib/scoring'
+import { explainScore } from './lib/scoring'
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -34,10 +35,39 @@ function save(key: string, value: unknown): void {
   }
 }
 
+async function fetchMissingOgImages(
+  candidates: FeedItem[],
+): Promise<Record<string, string | null>> {
+  const urls = [
+    ...new Set(
+      candidates
+        .filter((it) => !it.imageUrl && /^https?:\/\//i.test(it.link))
+        .map((it) => it.link),
+    ),
+  ].slice(0, 12)
+  if (urls.length === 0) return {}
+  try {
+    const res = await fetch('/api/og-images', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urls }),
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!res.ok) return {}
+    const json = (await res.json()) as {
+      images?: Record<string, string | null>
+    }
+    return json.images ?? {}
+  } catch {
+    return {}
+  }
+}
+
 export default function App() {
   const [feeds, setFeeds] = useState<FeedSource[]>(() =>
     load('rr.feeds', DEFAULT_FEEDS),
   )
+  const [activeView, setActiveView] = useState<AppView>('feed')
   const [items, setItems] = useState<FeedItem[]>([])
   const [pulse, setPulse] = useState<PulseSnapshot>({
     hn: [],
@@ -129,24 +159,61 @@ export default function App() {
       for (const r of results) if (r.error) errors[r.feed.id] = r.error
       setFeedErrors(errors)
 
+      let scoredItems: FeedItem[] = []
       if (live.length > 0) {
-        const scored = live.map((it) => ({
-          ...it,
-          score: scoreItem(it.title, it.description, it.pubDate),
-        }))
-        setItems(scored)
+        scoredItems = live.map((it) => {
+          const breakdown = explainScore(it.title, it.description, it.pubDate, {
+            feedId: it.feedId,
+            feedTitle: it.feedTitle,
+            link: it.link,
+          })
+          return {
+            ...it,
+            score: breakdown.score,
+            scoreDimensions: breakdown.dimensions,
+          }
+        })
+        setItems(scoredItems)
         setUsingSample(false)
-        notifyHighSignal(scored, alertsEnabled)
+        notifyHighSignal(scoredItems, alertsEnabled)
       } else {
-        setItems(getSampleItems())
+        scoredItems = getSampleItems()
+        setItems(scoredItems)
         setUsingSample(true)
       }
       setLastRefresh(new Date().toISOString())
       setLoading(false)
 
+      if (live.length > 0) {
+        void fetchMissingOgImages(scoredItems).then((imgMap) => {
+          if (Object.keys(imgMap).length === 0) return
+          setItems((prev) =>
+            prev.map((it) =>
+              !it.imageUrl && imgMap[it.link]
+                ? { ...it, imageUrl: imgMap[it.link] ?? undefined }
+                : it,
+            ),
+          )
+        })
+      }
+
       const pulseSnap = await pulsePromise
       setPulse(pulseSnap)
       setPulseLoading(false)
+
+      if (pulseSnap.hn.length > 0) {
+        void fetchMissingOgImages(pulseSnap.hn).then((imgMap) => {
+          if (Object.keys(imgMap).length === 0) return
+          setPulse((prev) => ({
+            ...prev,
+            hn: prev.hn.map((it) =>
+              !it.imageUrl && imgMap[it.link]
+                ? { ...it, imageUrl: imgMap[it.link] ?? undefined }
+                : it,
+            ),
+          }))
+        })
+      }
     },
     [alertsEnabled, notifyHighSignal],
   )
@@ -261,7 +328,7 @@ export default function App() {
         return
       }
       const activeId = selectedItem?.id ?? null
-      if (e.key === 'j' || e.key === 'k') {
+      if ((e.key === 'j' || e.key === 'k') && activeView === 'feed') {
         e.preventDefault()
         e.stopPropagation()
         if (visibleItems.length === 0) return
@@ -272,7 +339,7 @@ export default function App() {
             : Math.max(0, idx - 1)
         const item = visibleItems[next]
         if (item) selectItem(item.id)
-      } else if (e.key === 's' && activeId) {
+      } else if (e.key === 's' && activeId && activeView === 'feed') {
         e.preventDefault()
         e.stopPropagation()
         toggleSave(activeId)
@@ -289,7 +356,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey, { capture: true })
     return () => window.removeEventListener('keydown', onKey, { capture: true })
-  }, [visibleItems, selectedItem, selectItem, toggleSave, refresh, feeds])
+  }, [activeView, visibleItems, selectedItem, selectItem, toggleSave, refresh, feeds])
 
   const unreadCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -467,6 +534,8 @@ export default function App() {
       <TooltipProvider delayDuration={250}>
         <div className="flex h-full flex-col bg-white text-zinc-950">
           <TopBar
+            activeView={activeView}
+            onViewChange={setActiveView}
             total={items.length}
             unread={unreadTotal}
             high={items.filter((it) => (it.score ?? 0) >= 70).length}
@@ -489,61 +558,78 @@ export default function App() {
               your connection or add a feed below.
             </p>
           )}
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
-            <FeedList
-              feeds={feeds}
-              unreadCounts={unreadCounts}
-              totalUnread={unreadTotal}
-              pulseCounts={{
-                hn: pulse.hn.length,
-                github: pulse.github.length,
+          {activeView === 'feed' ? (
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
+              <FeedList
+                feeds={feeds}
+                unreadCounts={unreadCounts}
+                totalUnread={unreadTotal}
+                pulseCounts={{
+                  hn: pulse.hn.length,
+                  github: pulse.github.length,
+                }}
+                selectedFeed={selectedFeed}
+                onSelect={setSelectedFeed}
+                onAdd={addFeed}
+                onRemove={removeFeed}
+                onRestoreDefaults={restoreDefaults}
+                onImportOpml={handleImportOpml}
+                onExportOpml={() => downloadOpml(feeds)}
+                errors={feedErrors}
+              />
+              <ItemList
+                items={visibleItems}
+                loading={loading || isPulseLoading}
+                selectedId={selectedItem?.id ?? null}
+                onSelect={selectItem}
+                filter={filter}
+                onFilterChange={setFilter}
+                sortBy={sortBy}
+                onSortChange={setSortBy}
+                query={query}
+                onQueryChange={setQuery}
+                readIds={readIds}
+                savedIds={savedIds}
+                summaries={summaries}
+                onToggleSave={toggleSave}
+                onRefresh={() => void refresh(feeds, true)}
+                pulseError={activePulseError}
+              />
+              <ReaderPane
+                item={selectedItem}
+                saved={selectedItem ? savedIds.includes(selectedItem.id) : false}
+                geminiSummary={
+                  selectedItem ? summaries[selectedItem.id] : undefined
+                }
+                summaryLoading={
+                  selectedItem ? summaryLoadingId === selectedItem.id : false
+                }
+                summaryError={
+                  selectedItem ? summaryErrors[selectedItem.id] : undefined
+                }
+                onSummarize={(it) => void handleSummarize(it)}
+                onShare={handleShare}
+                onToggleSave={toggleSave}
+                onMarkUnread={(id) =>
+                  setReadIds((prev) => prev.filter((x) => x !== id))
+                }
+                onOpenRadar={() => setActiveView('radar')}
+              />
+            </div>
+          ) : (
+            <SignalRadarView
+              mode={activeView}
+              items={allKnownItems}
+              selectedItem={selectedItem}
+              onSelectAndOpen={(id) => {
+                if (id.startsWith('pulse-hn-')) setSelectedFeed('pulse:hn')
+                else if (id.startsWith('pulse-gh-')) setSelectedFeed('pulse:github')
+                else setSelectedFeed('all')
+                selectItem(id)
+                setActiveView('feed')
               }}
-              selectedFeed={selectedFeed}
-              onSelect={setSelectedFeed}
-              onAdd={addFeed}
-              onRemove={removeFeed}
-              onRestoreDefaults={restoreDefaults}
-              onImportOpml={handleImportOpml}
-              onExportOpml={() => downloadOpml(feeds)}
-              errors={feedErrors}
             />
-            <ItemList
-              items={visibleItems}
-              loading={loading || isPulseLoading}
-              selectedId={selectedItem?.id ?? null}
-              onSelect={selectItem}
-              filter={filter}
-              onFilterChange={setFilter}
-              sortBy={sortBy}
-              onSortChange={setSortBy}
-              query={query}
-              onQueryChange={setQuery}
-              readIds={readIds}
-              savedIds={savedIds}
-              onToggleSave={toggleSave}
-              onRefresh={() => void refresh(feeds, true)}
-              pulseError={activePulseError}
-            />
-            <ReaderPane
-              item={selectedItem}
-              saved={selectedItem ? savedIds.includes(selectedItem.id) : false}
-              geminiSummary={
-                selectedItem ? summaries[selectedItem.id] : undefined
-              }
-              summaryLoading={
-                selectedItem ? summaryLoadingId === selectedItem.id : false
-              }
-              summaryError={
-                selectedItem ? summaryErrors[selectedItem.id] : undefined
-              }
-              onSummarize={(it) => void handleSummarize(it)}
-              onShare={handleShare}
-              onToggleSave={toggleSave}
-              onMarkUnread={(id) =>
-                setReadIds((prev) => prev.filter((x) => x !== id))
-              }
-            />
-          </div>
+          )}
         </div>
       </TooltipProvider>
     </MotionConfig>

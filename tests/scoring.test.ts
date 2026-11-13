@@ -5,33 +5,44 @@ import { explainScore, scoreItem } from '../src/lib/scoring'
 const now = Date.now()
 const hoursAgo = (h: number) => new Date(now - h * 3_600_000).toISOString()
 
-test('scoreItem adds keyword weights and today recency bonus', () => {
+test('scoreItem scores high-relevance recent AWS/Kiro/agent articles >= 70', () => {
   const score = scoreItem(
-    'Kiro agents build on AWS',
-    'Agentic LLM startup security checklist',
+    'How to deploy agentic workflows with Kiro on AWS Bedrock',
+    'Build secure AI coding workflows using IAM, Bedrock AgentCore, and MCP servers in production.',
     hoursAgo(2),
+    { feedId: 'aws-ml', feedTitle: 'AWS Machine Learning Blog' },
   )
-  // 25 + 15 + 20 + 15 + 10 + 10 + 15 = 110 -> capped at 100
-  assert.equal(score, 100)
+  assert.ok(score >= 85 && score <= 100, `Expected high score, got ${score}`)
 })
 
-test('scoreItem awards +8 for items within the past week', () => {
-  const score = scoreItem('AWS security update', 'Details inside', hoursAgo(72))
-  // aws (15) + security (10) + week (8) = 33
-  assert.equal(score, 33)
+test('scoreItem applies smooth recency decay across hours vs days', () => {
+  const fresh = explainScore('AWS security update', 'Details inside', hoursAgo(4), {
+    feedId: 'aws-news',
+  })
+  const weekOld = explainScore('AWS security update', 'Details inside', hoursAgo(120), {
+    feedId: 'aws-news',
+  })
+  assert.ok(fresh.dimensions.recency > weekOld.dimensions.recency)
+  assert.ok(fresh.score > weekOld.score)
 })
 
-test('scoreItem handles invalid pubDate without NaN', () => {
-  const score = scoreItem('Kiro workflow', 'Guide', 'not-a-date')
-  assert.equal(score, 25)
+test('scoreItem handles invalid pubDate without NaN and returns valid dimensions', () => {
+  const breakdown = explainScore('Kiro workflow', 'Guide', 'not-a-date')
+  assert.equal(Number.isFinite(breakdown.score), true)
+  assert.equal(breakdown.dimensions.recency, 14)
+  assert.ok(breakdown.score > 0 && breakdown.score <= 100)
 })
 
-test('explainScore lists deterministic keyword and recency reasons', () => {
-  const breakdown = explainScore('Kiro on AWS', 'Agent workflow', hoursAgo(4))
-  assert.equal(breakdown.score, 75)
-  assert.equal(breakdown.reasons.length, 4)
-  assert.deepEqual(
-    breakdown.reasons.map((r) => r.points),
-    [25, 15, 20, 15],
+test('explainScore returns 4 normalized dimensions and clear reasons', () => {
+  const breakdown = explainScore(
+    'Introducing Kiro on AWS',
+    'New agentic workflow launch with IAM security baseline.',
+    hoursAgo(4),
+    { feedId: 'aws-news' },
   )
+  assert.ok(breakdown.dimensions.relevance >= 70)
+  assert.equal(breakdown.dimensions.recency, 100)
+  assert.ok(breakdown.dimensions.authority >= 72)
+  assert.ok(breakdown.dimensions.novelty >= 50)
+  assert.ok(breakdown.reasons.length >= 4)
 })

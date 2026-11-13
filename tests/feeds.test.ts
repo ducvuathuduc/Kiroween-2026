@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeDate, parseRss2Json } from '../src/lib/feeds'
+import {
+  extractImageFromHtml,
+  normalizeDate,
+  parseRss2Json,
+} from '../src/lib/feeds'
 
 test('normalizeDate interprets rss2json space-separated timestamps as UTC', () => {
   assert.equal(normalizeDate('2026-11-11 19:00:44'), '2026-11-11T19:00:44.000Z')
@@ -10,7 +14,16 @@ test('normalizeDate interprets rss2json space-separated timestamps as UTC', () =
   )
 })
 
-test('parseRss2Json parses items and sanitizes unsafe links', () => {
+test('extractImageFromHtml pulls real cover images and skips 1x1 pixels', () => {
+  const html = `
+    <img src="https://example.com/pixel.gif" width="1" height="1" />
+    <img src="https://cdn.example.com/cover.png" alt="Architecture" />
+  `
+  assert.equal(extractImageFromHtml(html), 'https://cdn.example.com/cover.png')
+  assert.equal(extractImageFromHtml('<img src="javascript:alert(1)" />'), undefined)
+})
+
+test('parseRss2Json parses items, extracts thumbnails/enclosures, and sanitizes unsafe links', () => {
   const source = {
     id: 'aws-news',
     title: 'AWS News Blog',
@@ -26,12 +39,14 @@ test('parseRss2Json parses items and sanitizes unsafe links', () => {
           pubDate: '2026-11-12 10:00:00',
           link: 'https://aws.amazon.com/blogs/aws/deploy-ai-agents/',
           description: 'Walkthrough of agentic builds.',
-          content: '<p>Walkthrough of <strong>agentic</strong> builds.</p>',
+          content:
+            '<p>Walkthrough of <strong>agentic</strong> builds.</p><img src="https://d2908q01vomqb2.cloudfront.net/arch.png" />',
         },
         {
           title: 'Bad link item',
           pubDate: '2026-11-12 09:00:00',
           link: 'javascript:alert(1)',
+          enclosure: { link: 'https://cdn.example.com/hero.jpg', type: 'image/jpeg' },
           description: 'Should drop javascript: URL.',
         },
       ],
@@ -46,8 +61,13 @@ test('parseRss2Json parses items and sanitizes unsafe links', () => {
     items[0].link,
     'https://aws.amazon.com/blogs/aws/deploy-ai-agents/',
   )
+  assert.equal(
+    items[0].imageUrl,
+    'https://d2908q01vomqb2.cloudfront.net/arch.png',
+  )
   assert.equal(items[0].description, 'Walkthrough of agentic builds.')
   assert.equal(items[1].link, '')
+  assert.equal(items[1].imageUrl, 'https://cdn.example.com/hero.jpg')
 })
 
 test('parseRss2Json throws when status is not ok', () => {

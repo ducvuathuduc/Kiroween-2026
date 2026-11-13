@@ -1,5 +1,5 @@
 import type { FeedItem } from './feeds'
-import { scoreItem } from './scoring'
+import { explainScore } from './scoring'
 
 const HOUR = 3_600_000
 
@@ -72,15 +72,22 @@ const FEED_ID_BY_TITLE: Record<string, string> = {
 export function getSampleItems(): FeedItem[] {
   return SAMPLES.map((s, i) => {
     const pubDate = new Date(Date.now() - s.hoursAgo * HOUR).toISOString()
+    const feedId = FEED_ID_BY_TITLE[s.feedTitle] ?? 'unknown'
+    const breakdown = explainScore(s.title, s.description, pubDate, {
+      feedId,
+      feedTitle: s.feedTitle,
+      link: s.link,
+    })
     return {
       id: `sample-${i}`,
-      feedId: FEED_ID_BY_TITLE[s.feedTitle] ?? 'unknown',
+      feedId,
       feedTitle: s.feedTitle,
       title: s.title,
       link: s.link,
       pubDate,
       description: s.description,
-      score: scoreItem(s.title, s.description, pubDate),
+      score: breakdown.score,
+      scoreDimensions: breakdown.dimensions,
       sample: true,
     }
   })

@@ -1,9 +1,12 @@
 import type { RefObject } from 'react'
 import {
+  Activity,
   ArrowUpDown,
   Bell,
   BellOff,
   Download,
+  GitBranch,
+  Layers,
   MoreHorizontal,
   RefreshCw,
   RotateCcw,
@@ -29,8 +32,11 @@ import { Separator } from './ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 export type SortBy = 'score' | 'date'
+export type AppView = 'feed' | 'radar' | 'system'
 
 interface TopBarProps {
+  activeView: AppView
+  onViewChange: (view: AppView) => void
   total: number
   unread: number
   high: number
@@ -49,6 +55,8 @@ interface TopBarProps {
 }
 
 export default function TopBar({
+  activeView,
+  onViewChange,
   total,
   unread,
   high,
@@ -68,20 +76,55 @@ export default function TopBar({
   const formattedRefresh = lastRefresh ? formatRefreshTime(lastRefresh) : ''
 
   return (
-    <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b border-zinc-200 bg-white/70 px-4 backdrop-blur-xl">
-      <div className="flex min-w-0 items-center gap-2.5">
+    <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white/75 px-3 backdrop-blur-xl sm:gap-3 sm:px-4">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
         <span
           aria-hidden="true"
           className="flex size-6 shrink-0 items-center justify-center rounded-md bg-zinc-950 font-mono text-[11px] font-semibold text-white"
         >
           R
         </span>
-        <span className="truncate text-sm font-semibold tracking-tight text-zinc-950">
-          <span className="hidden sm:inline">Resurrected Reader</span>
-          <span className="sm:hidden">Reader</span>
+        <span className="sr-only truncate text-sm font-semibold tracking-tight text-zinc-950 sm:not-sr-only">
+          Resurrected Reader
         </span>
-        <Separator orientation="vertical" className="hidden h-4 sm:block" />
-        <div className="hidden items-center gap-3 font-mono text-xs text-zinc-500 lg:flex">
+
+        <nav
+          aria-label="Primary views"
+          className="flex items-center rounded-md border border-zinc-200 bg-zinc-100/70 p-0.5"
+        >
+          {(
+            [
+              { id: 'feed', label: 'Feed', icon: Layers },
+              { id: 'radar', label: 'Radar', fullLabel: 'Signal Radar', icon: Activity },
+              { id: 'system', label: 'System', icon: GitBranch },
+            ] as const
+          ).map((tab) => {
+            const Icon = tab.icon
+            const active = activeView === tab.id
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onViewChange(tab.id)}
+                aria-current={active ? 'page' : undefined}
+                className={`inline-flex h-6 items-center gap-1 rounded-[5px] px-2 text-xs font-medium whitespace-nowrap transition-colors ${
+                  active
+                    ? 'bg-white text-zinc-950 shadow-xs'
+                    : 'text-zinc-600 hover:text-zinc-950'
+                }`}
+              >
+                <Icon aria-hidden="true" className="hidden size-3 sm:inline" />
+                <span className="sm:hidden">{tab.label}</span>
+                <span className="hidden sm:inline">
+                  {'fullLabel' in tab ? tab.fullLabel : tab.label}
+                </span>
+              </button>
+            )
+          })}
+        </nav>
+
+        <Separator orientation="vertical" className="hidden h-4 xl:block" />
+        <div className="hidden items-center gap-3 font-mono text-xs tabular-nums text-zinc-500 xl:flex">
           <span>
             <strong className="font-medium text-zinc-950">{total}</strong> items
           </span>
@@ -94,23 +137,26 @@ export default function TopBar({
         </div>
       </div>
 
-      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-        <div className="relative w-36 sm:w-56 md:w-64">
+      <div className="ml-auto flex items-center gap-1 sm:gap-2">
+        <div className="relative w-24 sm:w-48 md:w-56">
           <label htmlFor="search-items" className="visually-hidden">
             Search titles and summaries
           </label>
           <Search
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-zinc-400"
+            className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-zinc-400 sm:left-2.5"
           />
           <Input
             ref={searchInputRef}
             id="search-items"
             type="search"
             value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Search titles…"
-            className="h-8 border-zinc-200 bg-white/80 pr-8 pl-8 text-[13px] shadow-none placeholder:text-zinc-400 focus-visible:border-zinc-950 focus-visible:ring-0"
+            onChange={(e) => {
+              onQueryChange(e.target.value)
+              if (activeView !== 'feed') onViewChange('feed')
+            }}
+            placeholder="Search…"
+            className="h-8 border-zinc-200 bg-white/80 pr-7 pl-7 text-[13px] shadow-none placeholder:text-zinc-400 focus-visible:border-zinc-950 focus-visible:ring-0 sm:pr-8 sm:pl-8"
           />
           {query ? (
             <Button
@@ -140,7 +186,7 @@ export default function TopBar({
           <time
             dateTime={lastRefresh ?? undefined}
             title="Last refreshed"
-            className="hidden font-mono text-xs text-zinc-500 xl:inline"
+            className="hidden font-mono text-xs tabular-nums text-zinc-500 2xl:inline"
           >
             {formattedRefresh}
           </time>
@@ -159,11 +205,11 @@ export default function TopBar({
                   : 'Enable high-signal notifications (≥85)'
               }
               onClick={onToggleAlerts}
-              className={
+              className={`hidden sm:inline-flex ${
                 alertsEnabled
                   ? 'bg-zinc-100 text-zinc-950 hover:bg-zinc-200/70'
                   : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-950'
-              }
+              }`}
             >
               {alertsEnabled ? (
                 <Bell className="size-3.5" />
@@ -188,13 +234,13 @@ export default function TopBar({
               onClick={onRefresh}
               disabled={loading}
               aria-label="Refresh feeds"
-              className="h-8 gap-1.5 px-2.5 text-[13px] font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950"
+              className="h-8 gap-1.5 px-2 text-[13px] font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950 sm:px-2.5"
             >
               <RefreshCw
                 aria-hidden="true"
                 className={`size-3.5 ${loading ? 'animate-spin' : ''}`}
               />
-              <span className="hidden sm:inline">
+              <span className="hidden md:inline">
                 {loading ? 'Fetching…' : 'Refresh'}
               </span>
             </Button>
@@ -241,6 +287,14 @@ export default function TopBar({
               Refresh all feeds
               <DropdownMenuShortcut>r</DropdownMenuShortcut>
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onToggleAlerts}>
+              {alertsEnabled ? (
+                <Bell className="size-3.5" />
+              ) : (
+                <BellOff className="size-3.5" />
+              )}
+              {alertsEnabled ? 'Alerts on (≥85)' : 'Enable alerts (≥85)'}
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={onExportOpml}>
               <Download className="size-3.5" />
               Export feeds (.opml)
@@ -258,7 +312,7 @@ export default function TopBar({
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Avatar size="sm" className="border border-zinc-200">
+            <Avatar size="sm" className="hidden border border-zinc-200 sm:flex">
               <AvatarFallback className="bg-zinc-100 font-mono text-[10px] font-semibold text-zinc-800">
                 AW
               </AvatarFallback>

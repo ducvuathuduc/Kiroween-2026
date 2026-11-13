@@ -13,3 +13,8 @@
 - [x] 11. Keyboard: j/k + ↑/↓ navigate, s save/unsave, r refresh, / search.
 - [x] 12. Empty/error states; verify `npm run build` passes and no console errors.
 - [x] 13. README (run instructions) + MIT LICENSE. Do not delete `.kiro/`.
+- [x] 14. Extract real feed images (`media:content`, `media:thumbnail`, `enclosure`, `og:image`, RSS HTML `<img>`, and cached `/api/og-images`) with monogram fallback; display thumbnails in `ItemList` and cover banner in `ReaderPane`.
+- [x] 15. Recalibrate deterministic scoring into 4 normalized dimensions (`relevance`, `recency`, `authority`, `novelty`) so real AWS/AI builder feeds surface ≥70 items naturally.
+- [x] 16. Build `SignalRadarView` (Recharts score histogram, per-feed activity, and 4D item radar chart) plus `MermaidDiagram` system pipeline in both `System` view and `KiroTaskModal`.
+- [x] 17. Reduce `ItemList` text density with thumbnail + title + 1-line summary (prioritizing Gemini TL;DR first line) and compact metadata.
+- [x] 18. Polish `motion` micro-interactions (score count-up, row hover lift, skeleton shimmer, filter/pane transitions) and verify desktop + mobile captures.
