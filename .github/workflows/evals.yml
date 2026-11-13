@@ -1,0 +1,106 @@
+name: Evals
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Gate deterministic scoring and radar contracts (no model calls)
+        run: npx tsx --test tests/scoring.test.ts tests/radar.test.ts
+      - name: Report eval coverage honestly
+        if: always()
+        run: |
+          {
+            echo '## Deterministic eval coverage'
+            echo 'Scoring/radar test outcome is recorded in the gate above; these tests make no model calls.'
+            echo 'Summary length, invented-URL, golden-score, and LLM-rubric harness checks: **NOT RUN — pending feature #8**.'
+            echo 'No LLM pass rate or summary-quality improvement is claimed by this workflow.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  nightly-judge:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true # Quota-consuming LLM results are advisory, never a merge gate.
+    env:
+      PROMPTFOO_DISABLE_TELEMETRY: '1'
+      PROMPTFOO_DISABLE_UPDATE: 'true'
+      PROMPTFOO_DISABLE_REMOTE_GENERATION: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.x'
+          cache: npm
+      - name: Check real judge prerequisites (no model calls)
+        id: prerequisites
+        env:
+          JUDGE_ENABLED: ${{ vars.EVALS_LLM_JUDGE_ENABLED }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          ready=true
+          {
+            echo '## Nightly LLM judge (advisory)'
+            if [[ "$JUDGE_ENABLED" != true ]]; then
+              echo '- NOT RUN: quota opt-in EVALS_LLM_JUDGE_ENABLED is not true.'
+              ready=false
+            fi
+            if [[ ! -f evals/promptfoo.judge.yaml ]]; then
+              echo '- NOT RUN: evals/promptfoo.judge.yaml is absent; pending feature #8.'
+              ready=false
+            fi
+            if ! node -e 'const lock = require("./package-lock.json"); process.exit(lock.packages?.["node_modules/promptfoo"] ? 0 : 1)'; then
+              echo '- NOT RUN: promptfoo is not in the npm lockfile; pending feature #8.'
+              ready=false
+            fi
+            if [[ -z "$OPENAI_API_KEY" ]]; then
+              echo '- NOT RUN: the required OPENAI_API_KEY repository secret is absent.'
+              ready=false
+            fi
+            if [[ "$ready" == true ]]; then
+              echo '- Prerequisites present; the following advisory run consumes provider quota.'
+            else
+              echo 'No judge execution or LLM pass rate is reported for this run.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+      - name: Install locked judge harness
+        if: steps.prerequisites.outputs.ready == 'true'
+        run: npm ci --no-audit --no-fund
+      - name: Run advisory judge (only after explicit quota opt-in)
+        id: judge
+        if: steps.prerequisites.outputs.ready == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          test -x node_modules/.bin/promptfoo
+          node_modules/.bin/promptfoo eval --config evals/promptfoo.judge.yaml --no-share
+      - name: Report actual judge outcome
+        if: always() && steps.prerequisites.outputs.ready == 'true'
+        env:
+          JUDGE_OUTCOME: ${{ steps.judge.outcome }}
+        run: |
+          echo "Advisory judge step outcome: **$JUDGE_OUTCOME**. A skipped step is not a passing evaluation." >> "$GITHUB_STEP_SUMMARY"

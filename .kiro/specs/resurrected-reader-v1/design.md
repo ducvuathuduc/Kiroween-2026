@@ -67,7 +67,7 @@ Update the existing repository documentation and help-page copy in place, retain
 
 ## Continuous verification
 
-`.github/workflows/verify.yml` runs on main pushes and pull requests, on Ubuntu with Node 26 to match the verified orb toolchain. Install with `npm ci` and npm download caching, then run both TypeScript checks, `tests/*.test.ts`, lint, and the full build. Pin checkout/setup-node actions to reviewed upstream commit IDs and limit the job token to contents-read. No deployment command, deployment credential, AI secret, package publication, or manual-dispatch trigger belongs in this workflow. Real-feed tests need public network access and must fail honestly when their contract is not met.
+`.github/workflows/ci.yml` runs on main pushes and pull requests, on Ubuntu with owner-approved Node 22.x (>=22.12, required by locked Wrangler; no dependency downgrades). Install with `npm ci` and npm download caching, then run both TypeScript checks, lint, `tests/*.test.ts`, and the full build. Pin checkout/setup-node v4 actions to verified upstream commit IDs and limit the job token to contents-read. CI has no deployment command, deployment credential, AI secret, package publication, or manual-dispatch trigger. Real-feed tests need public network access and must fail honestly when their contract is not met. Separate `deploy.yml` repeats all gates before manual-only deployment of `dist/worker/wrangler.json`; `evals.yml` gates deterministic scoring and schedules opt-in advisory judging, honestly reporting absent feature #8 prerequisites. See `.kiro/specs/backlog-ci/` for scope and verification limitations.
 
 ## RSS response byte limit
 
