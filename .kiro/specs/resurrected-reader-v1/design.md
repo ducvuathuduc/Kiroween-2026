@@ -64,3 +64,7 @@ Both RSS and OpenGraph use the same canonical URL check and manual redirect loop
 ## Documentation consistency
 
 Update the existing repository documentation and help-page copy in place, retaining CSS, layout, navigation, and interactions. Distinguish deterministic scoring from optional AI, browser-local state from server caches/MCP's public catalog, and local builds from a live deployment. The Docs MCP section explains the reader's HTTP endpoint separately from the AWS Documentation MCP configuration. Privacy copy identifies feed/proxy/provider recipients without promising that third parties receive no network metadata. Existing historical changelog entries remain historical rather than being rewritten as current architecture.
+
+## Continuous verification
+
+`.github/workflows/verify.yml` runs on main pushes and pull requests, on Ubuntu with Node 26 to match the verified orb toolchain. Install with `npm ci` and npm download caching, then run both TypeScript checks, `tests/*.test.ts`, lint, and the full build. Pin checkout/setup-node actions to reviewed upstream commit IDs and limit the job token to contents-read. No deployment command, deployment credential, AI secret, package publication, or manual-dispatch trigger belongs in this workflow. Real-feed tests need public network access and must fail honestly when their contract is not met.

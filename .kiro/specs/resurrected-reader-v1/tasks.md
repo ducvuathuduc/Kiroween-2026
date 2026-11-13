@@ -35,3 +35,4 @@
 - [x] 33. Harden shared RSS/OpenGraph URL validation against private/reserved address forms and revalidate redirects; retain live public-feed/image behavior and regression-test the rejected URL forms.
 - [x] 34. Correct official-AWS scoring to use parsed hostname boundaries and exact catalog feed IDs, regression-testing lookalikes on either side of the high-signal threshold without changing weights or UI design.
 - [x] 35. Reconcile README/system documentation and About/Docs/Privacy/System help copy with the implemented runtime, scoring, MCP, and data flows; verify rendered copy and unchanged visual design.
+- [x] 36. Add a commit-pinned, read-only GitHub verification workflow for TypeScript, real-feed tests, lint, and Worker/client builds, with no deployment, publishing, or provider secrets.
