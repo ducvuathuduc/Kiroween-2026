@@ -38,3 +38,4 @@
 - [x] 36. Add a commit-pinned, read-only GitHub verification workflow for TypeScript, real-feed tests, lint, and Worker/client builds, with no deployment, publishing, or provider secrets.
 - [x] 37. Enforce the RSS 2 MiB limit while streaming rather than truncating after download; verify exact-boundary acceptance, oversized rejection, real-feed/cache behavior, and truthful help copy.
 - [x] 38. Make existing Mermaid edge-label backgrounds opaque in the shared renderer; verify System desktop/narrow and Kiro task pipeline diagrams without altering the visual design or interactions.
+- [x] 39. Remove the Kiro pipeline preview's static "Verified Build" assertion, name the actual MCP handoff, and verify the real-article modal without implying tool execution.

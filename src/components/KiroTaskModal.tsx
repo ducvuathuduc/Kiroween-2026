@@ -93,7 +93,7 @@ export default function KiroTaskModal({
   A["${safeFeed}"] --> B["4D Score: ${score}/100"]
   B --> ${aiNode}
   ${aiNode.split('[')[0]} --> F[".kiro/specs/${bundle.slug}/"]
-  F --> G["aws-docs MCP Verified Build"]`
+  F --> G["AWS Docs MCP in Kiro"]`
   }, [item, bundle, geminiSummary, score])
 
   const activeContent = (() => {

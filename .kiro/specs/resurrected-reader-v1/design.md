@@ -76,3 +76,7 @@ Pipe the upstream body through a native TransformStream that counts chunk byte l
 ## Diagram label legibility
 
 Mermaid's default SVG edge-label rectangles have opacity 0.5, allowing connector strokes to show through text. Set their opacity to 1 through Mermaid's diagram-scoped themeCSS option in the shared renderer. Retain the existing fill, dimensions, layout, SVG sanitization, and all non-label styling. Verify computed opacity and rendered System diagrams at desktop/narrow widths, plus the Kiro task pipeline that shares this renderer.
+
+## Honest spec handoff
+
+The Kiro modal generates a preview and downloadable spec, not an executed build or AWS Documentation MCP result. Replace its static "aws-docs MCP Verified Build" node with "AWS Docs MCP in Kiro", matching the existing System diagram and configured `.kiro/settings/mcp.json` integration. Preserve all preview/export behavior and styles. Inspect the real-article modal and its displayed pipeline source; actual Kiro execution remains separate evidence.

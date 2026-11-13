@@ -58,3 +58,4 @@
 - [x] GitHub CI runs the existing TypeScript, real-feed test, lint, and Worker/client build gates for main-branch pushes and pull requests using locked npm dependencies, Node 26, read-only repository permissions, and commit-pinned actions. It never deploys, publishes, or receives AI/provider secrets.
 - [x] RSS reads at most 2 MiB of accepted upstream bytes before decoding/caching; a response exceeding that limit fails with HTTP 502 and cancels upstream consumption instead of returning truncated XML. Exactly-at-limit responses and normal live feeds still work.
 - [x] Mermaid edge labels remain legible without connectors showing through their backgrounds. Preserve the existing monochrome design, diagram layout, sanitization, and both System and Kiro task pipeline renders.
+- [x] The Kiro task pipeline names the AWS Docs MCP handoff without claiming a build or MCP call was verified merely by generating a spec preview.
