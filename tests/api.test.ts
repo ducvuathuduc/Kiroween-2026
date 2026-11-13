@@ -17,6 +17,19 @@ function post(path: string, body: unknown) {
   })
 }
 
+const privateUrls = [
+  'http://localhost/', 'http://localhost./', 'http://reader.localhost/',
+  'http://reader.local./', 'http://reader.internal/', 'http://metadata/',
+  'http://127.0.0.1/', 'http://2130706433/', 'http://0x7f000001/',
+  'http://0.0.0.0/', 'http://10.0.0.1/', 'http://192.168.1.1/',
+  'http://172.16.0.1/', 'http://172.31.255.255/', 'http://169.254.169.254/',
+  'http://100.64.0.1/', 'http://100.127.255.255/', 'http://198.18.0.1/',
+  'http://192.0.2.1/', 'http://198.51.100.1/', 'http://203.0.113.1/',
+  'http://224.0.0.1/', 'http://255.255.255.255/',
+  'http://[::1]:9/', 'http://[::ffff:127.0.0.1]:9/', 'http://[fd00::1]:9/',
+  'https://user:password@aws.amazon.com/blogs/aws/feed/',
+]
+
 test('Hono preserves the existing API contracts', async (t) => {
   const keys = ['GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']
   const saved = keys.map((key) => process.env[key])
@@ -44,7 +57,7 @@ test('Hono preserves the existing API contracts', async (t) => {
   })
 
   await t.test('RSS rejects missing, non-HTTP, and private addresses', async () => {
-    for (const url of ['', 'file:///etc/passwd', 'http://localhost/', 'http://127.0.0.1/', 'http://10.0.0.1/', 'http://192.168.1.1/', 'http://172.16.0.1/', 'http://169.254.169.254/']) {
+    for (const url of ['', 'file:///etc/passwd', ...privateUrls]) {
       const response = await request(`/api/rss?url=${encodeURIComponent(url)}`)
       assert.equal(response.status, 400, url)
       assert.deepEqual(await response.json(), { error: 'A valid public http(s) feed URL is required.' })
@@ -64,6 +77,9 @@ test('Hono preserves the existing API contracts', async (t) => {
     const second = await request(url)
     assert.equal(second.status, 200)
     assert.equal(await second.text(), xml)
+    const redirected = await request('/api/rss?url=' + encodeURIComponent('http://aws.amazon.com/blogs/aws/feed/'))
+    assert.equal(redirected.status, 200)
+    assert.match(await redirected.text(), /<rss\b/)
   })
 
   await t.test('summarize and embeddings retain validation and no-provider behavior', async () => {
@@ -86,10 +102,11 @@ test('Hono preserves the existing API contracts', async (t) => {
     const empty = await post('/api/og-images', {})
     assert.equal(empty.status, 200)
     assert.deepEqual(await empty.json(), { images: {} })
-    const privateUrl = 'http://127.0.0.1/'
-    const blocked = await post('/api/og-images', { urls: [privateUrl, 42] })
-    assert.equal(blocked.status, 200)
-    assert.deepEqual(await blocked.json(), { images: { [privateUrl]: null } })
+    for (const url of privateUrls) {
+      const blocked = await post('/api/og-images', { urls: [url, 42] })
+      assert.equal(blocked.status, 200)
+      assert.deepEqual(await blocked.json(), { images: { [url]: null } })
+    }
   })
 
   await t.test('JSON parsing retains 400 and 413 boundaries', async () => {

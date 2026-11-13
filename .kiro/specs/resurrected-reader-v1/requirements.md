@@ -49,3 +49,7 @@
 - [x] Hono `4.13.18` replaces Express without changing the frontend or existing `/api/health`, `/api/providers`, `/api/rss`, `/api/og-images`, `/api/summarize`, and `/api/embed` JSON contracts, status codes, caches, or RSS URL guard.
 - [x] Workers + Static Assets (not Pages) uses `@cloudflare/vite-plugin@1.69.1` and `wrangler@4.161.0`; SPA routes load through the asset binding, and `/api/*` plus `/mcp` always reach the Worker first.
 - [x] Local Wrangler smoke tests cover `/mcp` and every API route, including validation errors, missing credentials, real RSS XML, and private-address rejection. No deployment or secret publication occurs during verification.
+
+## Judging-readiness hardening
+
+- [x] RSS and OpenGraph proxies reject localhost names, private/reserved IPv4 literals, credentials, and IPv6 literals (including mapped loopback). Validate every redirect before fetching, limit redirect hops, and keep public-domain feeds and images working. This hostname/literal guard does not claim DNS-rebinding protection.

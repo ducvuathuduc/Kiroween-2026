@@ -36,23 +36,47 @@ function isPublicHttpUrl(raw: string): string | null {
   try {
     const parsed = new URL(raw.trim())
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
-    const host = parsed.hostname.toLowerCase()
+    const host = parsed.hostname.toLowerCase().replace(/\.$/, '')
     if (
+      parsed.username || parsed.password ||
+      !host.includes('.') || host.startsWith('[') ||
       host === 'localhost' ||
+      host.endsWith('.localhost') ||
       host.endsWith('.local') ||
-      host.endsWith('.internal') ||
-      host === '::1' ||
-      host.startsWith('127.') ||
-      host.startsWith('10.') ||
-      host.startsWith('192.168.') ||
-      host.startsWith('169.254.') ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+      host.endsWith('.internal')
     ) {
       return null
+    }
+    // URL canonicalizes shortened, integer, octal, and hexadecimal IPv4 forms.
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+      const [a, b, c] = host.split('.').map(Number)
+      if (
+        a === 0 || a === 10 || a === 127 || a >= 224 ||
+        (a === 100 && b >= 64 && b <= 127) ||
+        (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && (b === 168 || (b === 0 && (c === 0 || c === 2)) || (b === 88 && c === 99))) ||
+        (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+        (a === 203 && b === 0 && c === 113)
+      ) return null
     }
     return parsed.toString()
   } catch {
     return null
+  }
+}
+
+async function fetchPublicUrl(rawUrl: string, init: RequestInit): Promise<Response> {
+  let url = rawUrl
+  for (let redirects = 0; ; redirects += 1) {
+    const safeUrl = isPublicHttpUrl(url)
+    if (!safeUrl) throw new Error('Upstream URL must be public HTTP(S).')
+    const response = await fetch(safeUrl, { ...init, redirect: 'manual' })
+    const location = response.headers.get('location')
+    if (![301, 302, 303, 307, 308].includes(response.status) || !location) return response
+    await response.body?.cancel()
+    if (redirects >= 5) throw new Error('Too many upstream redirects.')
+    url = new URL(location, safeUrl).toString()
   }
 }
 
@@ -85,8 +109,7 @@ async function resolveOgImage(rawUrl: string): Promise<string | null> {
 
   let found: string | null = null
   try {
-    const res = await fetch(safeUrl, {
-      redirect: 'follow',
+    const res = await fetchPublicUrl(safeUrl, {
       signal: AbortSignal.timeout(3500),
       headers: {
         'User-Agent':
@@ -184,8 +207,7 @@ app.get('/api/rss', async (c) => {
   }
 
   try {
-    const upstream = await fetch(safeUrl, {
-      redirect: 'follow',
+    const upstream = await fetchPublicUrl(safeUrl, {
       signal: AbortSignal.timeout(6500),
       headers: {
         'User-Agent':
