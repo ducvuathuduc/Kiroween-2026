@@ -1,0 +1,1 @@
+{"hooks":[{"action":{"command":"npx tsc --noEmit","type":"command"},"description":"Run TypeScript typecheck whenever a TS/TSX file is saved, so type errors surface immediately.","matcher":"\\.(ts|tsx)$","name":"Typecheck on save","timeout":120,"trigger":"PostFileSave"}],"version":"v1"}
