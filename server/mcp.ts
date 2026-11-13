@@ -2,11 +2,10 @@ import { McpServer, type CallToolResult } from '@modelcontextprotocol/server'
 import { createMcpHandler } from 'agents/mcp/server'
 import { z } from 'zod'
 import { DEFAULT_FEEDS } from '../src/lib/feeds.ts'
-import { selectDailyBriefingItems } from '../src/lib/briefing.ts'
-import { buildKiroSpecBundle } from '../src/lib/kiroTask.ts'
 import { rankItemsByCosine } from '../src/lib/providers.ts'
 import { getProvidersStatus, semanticScoreWithFallback, summarizeWithFallback } from './ai.ts'
 import { getItem, loadItems } from './items.ts'
+import { dailyBriefing, exportKiroTask, searchItems } from './readTools.ts'
 
 const itemId = z.string().trim().min(1).max(4096)
 const provider = z.enum(['gemini', 'openai', 'anthropic', 'bedrock']).default('gemini')
@@ -35,11 +34,7 @@ export function createReaderMcpServer(): McpServer {
   server.registerTool('search_items', {
     description: 'Search current live feed titles and descriptions, sorted by deterministic signal score. Returns item IDs for the item tools and any feed errors.',
     inputSchema: z.object({ query: query.optional(), limit, minScore: z.number().min(0).max(100).default(0) }),
-  }, ({ query: text, limit: count, minScore }) => result(async () => {
-    const { items, errors } = await loadItems()
-    const needle = text?.toLowerCase() ?? ''
-    return { items: items.filter((item) => (item.score ?? 0) >= minScore && `${item.title} ${item.description}`.toLowerCase().includes(needle)).slice(0, count), errors }
-  }))
+  }, (args) => result(() => searchItems(args)))
 
   server.registerTool('get_item', {
     description: 'Get a current live item by an ID returned by search_items, semantic_search, or daily_briefing.',
@@ -78,15 +73,12 @@ export function createReaderMcpServer(): McpServer {
   server.registerTool('daily_briefing', {
     description: 'Return the top five deduplicated live items by deterministic signal score. Does not generate AI summaries; use summarize_item for those.',
     inputSchema: z.object({}),
-  }, () => result(async () => {
-    const { items, errors } = await loadItems()
-    return { items: selectDailyBriefingItems(items), errors }
-  }))
+  }, () => result(dailyBriefing))
 
   server.registerTool('export_kiro_task', {
     description: 'Generate requirements.md, design.md, and tasks.md from a live item using the same Kiro spec builder as the reader. Returns Markdown without writing files.',
     inputSchema: z.object({ id: itemId }),
-  }, ({ id }) => result(async () => buildKiroSpecBundle(await getItem(id))))
+  }, ({ id }) => result(() => exportKiroTask(id)))
 
   return server
 }

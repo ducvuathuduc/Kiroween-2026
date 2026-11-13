@@ -20,6 +20,7 @@ const TOC_ITEMS = [
   { id: 'kiro-export', label: 'Kiro task & .zip export' },
   { id: 'shortcuts', label: 'Keyboard shortcuts' },
   { id: 'mcp-tools', label: 'Reader & AWS Docs MCP' },
+  { id: 'a2a', label: 'A2A task stub' },
 ]
 
 export default function DocsPage({
@@ -386,6 +387,48 @@ export default function DocsPage({
   }
 }`}</code>
             </pre>
+          </section>
+
+          <Separator />
+
+          <section id="a2a" className="space-y-3 scroll-mt-6">
+            <h2 className="text-lg font-semibold tracking-tight text-zinc-950">
+              9. A2A discovery &amp; stateless task stub
+            </h2>
+            <p className="text-[13.5px] leading-relaxed text-zinc-700">
+              Discover the public{' '}
+              <a href="/.well-known/agent-card.json" className="font-medium underline">Agent Card</a>
+              {' '}and send JSON-RPC <code>message/send</code> to <code>/a2a/tasks</code>.
+              This intentionally limited <strong>A2A 0.3.0</strong> wire subset is
+              pinned to that method and its published shapes; current A2A 1.0
+              uses a different wire. No SDK dependency or AI provider key is needed.
+            </p>
+            <ul className="list-disc space-y-1.5 pl-5 text-[13px] text-zinc-600">
+              <li><code>get_top_items</code>: optional <code>limit</code> (1–50, default 20) and <code>minScore</code> (0–100); shares MCP search_items logic.</li>
+              <li><code>get_briefing</code>: the same top-five selector as the UI and MCP daily_briefing; no automatic paid AI summaries.</li>
+              <li><code>export_kiro_task</code>: supply an <code>id</code> from a live item to get the same three Markdown specs as MCP.</li>
+            </ul>
+            <p className="text-[13.5px] leading-relaxed text-zinc-700">
+              Each request returns a terminal Task with a JSON DataPart artifact,
+              or a failed Task with an honest error message. Invalid requests return
+              JSON-RPC errors. Tasks pass through submitted → working → completed/failed
+              within the request; metadata records those transitions, not an event stream.
+              Public read-only access has no authentication requirement. Only default
+              live feeds are shared, never browser-local subscriptions or sample data.
+            </p>
+            <pre tabIndex={0} role="region" aria-label="A2A curl example" className="overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-100">
+              <code>{`# Set BASE to the origin where you opened this app (no trailing slash).
+curl -fsS "$BASE/.well-known/agent-card.json"
+curl -fsS "$BASE/a2a/tasks" \\
+  -H 'Content-Type: application/json' \\
+  --data '{"jsonrpc":"2.0","id":"briefing-1","method":"message/send","params":{"message":{"kind":"message","role":"user","messageId":"curl-1","parts":[{"kind":"data","data":{"skill":"get_briefing"}}]}}}'`}</code>
+            </pre>
+            <p className="text-xs leading-relaxed text-zinc-500">
+              Synchronous only: no persisted tasks/get, cancellation, multi-turn history,
+              SSE, push notifications, or full A2A compliance claim. Use one DataPart
+              command per new user Message; natural-language routing is not supported.
+              Curl is a second HTTP client, not proof of untested peer interoperability.
+            </p>
           </section>
         </div>
       </div>

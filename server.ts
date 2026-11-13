@@ -8,6 +8,7 @@ import {
 } from './server/ai.ts'
 import { sanitizeProviderId } from './src/lib/providers.ts'
 import { mcpHandler } from './server/mcp.ts'
+import { a2aApp } from './server/a2a.ts'
 
 interface SummarizeRequestBody {
   title?: unknown
@@ -152,6 +153,9 @@ const app = new Hono<{
   Bindings: { ASSETS?: { fetch(request: Request): Promise<Response> } }
   Variables: { body: unknown }
 }>()
+
+// Keep JSON-RPC parse errors independent of the existing API/MCP body contract.
+app.route('/', a2aApp)
 
 const limitJsonBody = bodyLimit({ maxSize: 192 * 1024 })
 app.use('*', async (c, next) => {
