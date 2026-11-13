@@ -30,6 +30,17 @@ export interface ScoreContext {
   link?: string
 }
 
+export const SIGNAL_DIMENSION_META: ReadonlyArray<{
+  key: keyof SignalDimensions
+  label: string
+  weight: number
+}> = [
+  { key: 'relevance', label: 'Relevance', weight: 42 },
+  { key: 'recency', label: 'Recency', weight: 24 },
+  { key: 'authority', label: 'Authority', weight: 18 },
+  { key: 'novelty', label: 'Novelty', weight: 16 },
+]
+
 function clamp100(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)))
 }

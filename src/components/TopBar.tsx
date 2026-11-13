@@ -4,16 +4,27 @@ import {
   ArrowUpDown,
   Bell,
   BellOff,
+  BookOpen,
+  Command,
   Download,
+  FileJson,
   GitBranch,
+  History,
+  Info,
+  Keyboard,
   Layers,
   MoreHorizontal,
+  Newspaper,
   RefreshCw,
   RotateCcw,
   Search,
+  Settings,
+  Shield,
   X,
 } from 'lucide-react'
+import { motion } from 'motion/react'
 import { formatRefreshTime } from '../lib/format'
+import type { AppRoute, NavigableRoute } from '../lib/routes'
 import { Avatar, AvatarFallback } from './ui/avatar'
 import { Button } from './ui/button'
 import {
@@ -32,14 +43,15 @@ import { Separator } from './ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 export type SortBy = 'score' | 'date'
-export type AppView = 'feed' | 'radar' | 'system'
+export type AppView = NavigableRoute
 
 interface TopBarProps {
-  activeView: AppView
-  onViewChange: (view: AppView) => void
+  activeView: AppRoute
+  onViewChange: (view: NavigableRoute) => void
   total: number
   unread: number
   high: number
+  newCount: number
   lastRefresh: string | null
   loading: boolean
   alertsEnabled: boolean
@@ -48,11 +60,21 @@ interface TopBarProps {
   searchInputRef: RefObject<HTMLInputElement | null>
   sortBy: SortBy
   onSortChange: (sort: SortBy) => void
+  onOpenCommandPalette: () => void
+  onOpenShortcutsModal: () => void
   onRefresh: () => void
   onToggleAlerts: () => void
   onExportOpml: () => void
+  onExportJson: () => void
   onRestoreDefaults: () => void
 }
+
+const NAV_TABS = [
+  { id: 'feed', label: 'Feed', icon: Layers },
+  { id: 'briefing', label: 'Brief', fullLabel: 'Briefing', icon: Newspaper },
+  { id: 'radar', label: 'Radar', fullLabel: 'Signal Radar', icon: Activity },
+  { id: 'system', label: 'Sys', fullLabel: 'System', icon: GitBranch },
+] as const
 
 export default function TopBar({
   activeView,
@@ -60,6 +82,7 @@ export default function TopBar({
   total,
   unread,
   high,
+  newCount,
   lastRefresh,
   loading,
   alertsEnabled,
@@ -68,9 +91,12 @@ export default function TopBar({
   searchInputRef,
   sortBy,
   onSortChange,
+  onOpenCommandPalette,
+  onOpenShortcutsModal,
   onRefresh,
   onToggleAlerts,
   onExportOpml,
+  onExportJson,
   onRestoreDefaults,
 }: TopBarProps) {
   const formattedRefresh = lastRefresh ? formatRefreshTime(lastRefresh) : ''
@@ -78,27 +104,31 @@ export default function TopBar({
   return (
     <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white/75 px-3 backdrop-blur-xl sm:gap-3 sm:px-4">
       <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
-        <span
-          aria-hidden="true"
-          className="flex size-6 shrink-0 items-center justify-center rounded-md bg-zinc-950 font-mono text-[11px] font-semibold text-white"
+        <a
+          href="/"
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+            e.preventDefault()
+            onViewChange('feed')
+          }}
+          className="flex shrink-0 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
         >
-          R
-        </span>
-        <span className="sr-only truncate text-sm font-semibold tracking-tight text-zinc-950 sm:not-sr-only">
-          Resurrected Reader
-        </span>
+          <span
+            aria-hidden="true"
+            className="flex size-6 shrink-0 items-center justify-center rounded-md bg-zinc-950 font-mono text-[11px] font-semibold text-white"
+          >
+            R
+          </span>
+          <span className="sr-only truncate text-sm font-semibold tracking-tight text-zinc-950 lg:not-sr-only">
+            Resurrected Reader
+          </span>
+        </a>
 
         <nav
           aria-label="Primary views"
           className="flex items-center rounded-md border border-zinc-200 bg-zinc-100/70 p-0.5"
         >
-          {(
-            [
-              { id: 'feed', label: 'Feed', icon: Layers },
-              { id: 'radar', label: 'Radar', fullLabel: 'Signal Radar', icon: Activity },
-              { id: 'system', label: 'System', icon: GitBranch },
-            ] as const
-          ).map((tab) => {
+          {NAV_TABS.map((tab) => {
             const Icon = tab.icon
             const active = activeView === tab.id
             return (
@@ -107,16 +137,24 @@ export default function TopBar({
                 type="button"
                 onClick={() => onViewChange(tab.id)}
                 aria-current={active ? 'page' : undefined}
-                className={`inline-flex h-6 items-center gap-1 rounded-[5px] px-2 text-xs font-medium whitespace-nowrap transition-colors ${
-                  active
-                    ? 'bg-white text-zinc-950 shadow-xs'
-                    : 'text-zinc-600 hover:text-zinc-950'
+                className={`relative inline-flex h-6 items-center gap-1 rounded-[5px] px-1.5 text-xs font-medium whitespace-nowrap transition-colors sm:px-2 ${
+                  active ? 'text-zinc-950' : 'text-zinc-600 hover:text-zinc-950'
                 }`}
               >
-                <Icon aria-hidden="true" className="hidden size-3 sm:inline" />
-                <span className="sm:hidden">{tab.label}</span>
-                <span className="hidden sm:inline">
-                  {'fullLabel' in tab ? tab.fullLabel : tab.label}
+                {active && (
+                  <motion.span
+                    layoutId="topbar-active-view"
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                    aria-hidden="true"
+                    className="absolute inset-0 rounded-[5px] bg-white shadow-xs"
+                  />
+                )}
+                <span className="relative z-10 inline-flex items-center gap-1">
+                  <Icon aria-hidden="true" className="hidden size-3 sm:inline" />
+                  <span className="sm:hidden">{tab.label}</span>
+                  <span className="hidden sm:inline">
+                    {'fullLabel' in tab ? tab.fullLabel : tab.label}
+                  </span>
                 </span>
               </button>
             )
@@ -134,17 +172,23 @@ export default function TopBar({
           <span>
             <strong className="font-medium text-zinc-950">{high}</strong> ≥70
           </span>
+          {newCount > 0 && (
+            <span>
+              <strong className="font-medium text-zinc-950">{newCount}</strong>{' '}
+              new
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="ml-auto flex items-center gap-1 sm:gap-2">
-        <div className="relative w-24 sm:w-48 md:w-56">
+      <div className="ml-auto flex items-center gap-1 sm:gap-1.5">
+        <div className="relative hidden w-40 sm:block md:w-48">
           <label htmlFor="search-items" className="visually-hidden">
             Search titles and summaries
           </label>
           <Search
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-zinc-400 sm:left-2.5"
+            className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-zinc-400"
           />
           <Input
             ref={searchInputRef}
@@ -155,8 +199,8 @@ export default function TopBar({
               onQueryChange(e.target.value)
               if (activeView !== 'feed') onViewChange('feed')
             }}
-            placeholder="Search…"
-            className="h-8 border-zinc-200 bg-white/80 pr-7 pl-7 text-[13px] shadow-none placeholder:text-zinc-400 focus-visible:border-zinc-950 focus-visible:ring-0 sm:pr-8 sm:pl-8"
+            placeholder="Filter…"
+            className="h-8 border-zinc-200 bg-white/80 pr-7 pl-8 text-[13px] shadow-none placeholder:text-zinc-400 focus-visible:border-zinc-950 focus-visible:ring-0"
           />
           {query ? (
             <Button
@@ -175,12 +219,45 @@ export default function TopBar({
           ) : (
             <kbd
               aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 rounded border border-zinc-200 bg-zinc-50 px-1 font-mono text-[10px] text-zinc-400 sm:inline-block"
+              className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-zinc-200 bg-zinc-50 px-1 font-mono text-[10px] text-zinc-400"
             >
               /
             </kbd>
           )}
         </div>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onOpenCommandPalette}
+              aria-label="Open command palette"
+              className="h-8 gap-1 border-zinc-200 bg-white/80 px-2 font-mono text-xs text-zinc-600 shadow-none hover:bg-zinc-100 hover:text-zinc-950"
+            >
+              <Command aria-hidden="true" className="size-3" />
+              <span className="hidden sm:inline">K</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Command palette (⌘K / Ctrl+K)</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={onOpenShortcutsModal}
+              aria-label="Keyboard shortcuts"
+              className="hidden font-mono text-xs text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950 sm:inline-flex"
+            >
+              ?
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Keyboard shortcuts (?)</TooltipContent>
+        </Tooltip>
 
         {formattedRefresh && (
           <time
@@ -282,6 +359,11 @@ export default function TopBar({
               </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onOpenCommandPalette}>
+              <Command className="size-3.5" />
+              Command palette
+              <DropdownMenuShortcut>⌘K</DropdownMenuShortcut>
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={onRefresh}>
               <RefreshCw className="size-3.5" />
               Refresh all feeds
@@ -299,13 +381,46 @@ export default function TopBar({
               <Download className="size-3.5" />
               Export feeds (.opml)
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onExportJson}>
+              <FileJson className="size-3.5" />
+              Export all data (.json)
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={onRestoreDefaults}>
               <RotateCcw className="size-3.5" />
               Restore default feeds
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-zinc-500">
+              Pages &amp; Settings
+            </DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => onViewChange('settings')}>
+              <Settings className="size-3.5" />
+              Settings
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onViewChange('docs')}>
+              <BookOpen className="size-3.5" />
+              Documentation
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onOpenShortcutsModal}>
+              <Keyboard className="size-3.5" />
+              Keyboard shortcuts
+              <DropdownMenuShortcut>?</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onViewChange('about')}>
+              <Info className="size-3.5" />
+              About
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onViewChange('changelog')}>
+              <History className="size-3.5" />
+              Changelog
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onViewChange('privacy')}>
+              <Shield className="size-3.5" />
+              Privacy Policy
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-[11px] font-normal text-zinc-500">
-              Keys: ↑/↓ or j/k move · s save · / search
+              j/k move · o open · s summarize · e kiro · ? keys
             </DropdownMenuLabel>
           </DropdownMenuContent>
         </DropdownMenu>

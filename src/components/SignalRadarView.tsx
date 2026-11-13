@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
-import { ArrowUpRight } from 'lucide-react'
-import { motion } from 'motion/react'
+import { AlertCircle, ArrowUpRight, CheckCircle2, Clock, RefreshCw } from 'lucide-react'
+import type { FeedHealth } from '../lib/briefing'
+import type { FeedItem, FeedSource } from '../lib/feeds'
+import { formatRefreshTime, scoreBadgeClass, timeAgo } from '../lib/format'
 import {
   Bar,
   BarChart,
@@ -16,8 +18,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import type { FeedItem } from '../lib/feeds'
-import { scoreBadgeClass } from '../lib/format'
 import {
   buildFeedActivity,
   buildItemRadarData,
@@ -25,11 +25,12 @@ import {
   computeRadarSummary,
   getItemDimensions,
 } from '../lib/radar'
-import { explainScore } from '../lib/scoring'
+import { explainScore, SIGNAL_DIMENSION_META } from '../lib/scoring'
+import type { NavigableRoute } from '../lib/routes'
 import MermaidDiagram from './MermaidDiagram'
+import PageShell from './PageShell'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
-import { ScrollArea } from './ui/scroll-area'
 import { Separator } from './ui/separator'
 
 export const SYSTEM_PIPELINE_MERMAID = `flowchart LR
@@ -44,14 +45,28 @@ interface SignalRadarViewProps {
   mode: 'radar' | 'system'
   items: FeedItem[]
   selectedItem: FeedItem | null
+  feeds: FeedSource[]
+  feedHealth: Record<string, FeedHealth>
+  feedErrors: Record<string, string>
+  loading: boolean
+  onRefresh: () => void
+  onSelectFeed: (feedId: string) => void
   onSelectAndOpen: (itemId: string) => void
+  onNavigate: (route: NavigableRoute) => void
 }
 
 export default function SignalRadarView({
   mode,
   items,
   selectedItem,
+  feeds,
+  feedHealth,
+  feedErrors,
+  loading,
+  onRefresh,
+  onSelectFeed,
   onSelectAndOpen,
+  onNavigate,
 }: SignalRadarViewProps) {
   const [inspectedId, setInspectedId] = useState<string>('')
 
@@ -89,33 +104,143 @@ export default function SignalRadarView({
     : null
 
   if (mode === 'system') {
-    return (
-      <main
-        aria-label="System architecture and pipeline"
-        className="min-h-0 flex-1 bg-white"
-      >
-        <ScrollArea className="h-full">
-          <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.16, ease: 'easeOut' }}
-            className="mx-auto max-w-4xl space-y-8 px-6 py-8"
-          >
-            <div>
-              <h1 className="text-lg font-semibold tracking-tight text-zinc-950">
-                Signal Pipeline & Architecture
-              </h1>
-              <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-zinc-600">
-                Resurrected Reader turns raw feeds into deterministic signal
-                scores, optional Gemini summaries, and drop-in Kiro spec
-                bundles paired with official AWS Documentation MCP tools.
-              </p>
-            </div>
+    const healthyCount = feeds.filter((f) => feedHealth[f.id]?.ok).length
+    const errorCount = feeds.filter((f) => feedHealth[f.id] && !feedHealth[f.id].ok).length
 
-            <MermaidDiagram
-              chart={SYSTEM_PIPELINE_MERMAID}
-              caption="End-to-end deterministic scoring, Gemini TL;DR summarization, and Kiro spec generation pipeline."
+    return (
+      <PageShell
+        label="System architecture and feed health"
+        currentRoute="system"
+        onNavigate={onNavigate}
+        maxWidth="max-w-5xl"
+      >
+        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-zinc-200 pb-5">
+          <div>
+            <p className="font-mono text-[11px] font-medium tracking-wider text-zinc-500 uppercase">
+              System &amp; Health · /system
+            </p>
+            <h1 className="mt-1.5 text-xl font-semibold tracking-tight text-zinc-950">
+              Feed Health &amp; Signal Pipeline
+            </h1>
+            <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-zinc-600">
+              Monitor live ingestion health across your subscribed feeds, inspect
+              the scoring rubric, and trace how reads become Kiro spec bundles.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={loading}
+            onClick={onRefresh}
+            className="h-8 gap-1.5 border-zinc-200 text-xs shadow-none"
+          >
+            <RefreshCw
+              aria-hidden="true"
+              className={`size-3.5 ${loading ? 'animate-spin' : ''}`}
             />
+            {loading ? 'Checking feeds…' : 'Refresh all feeds'}
+          </Button>
+        </div>
+
+        <section aria-label="Feed health dashboard" className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-xs font-medium tracking-wider text-zinc-500 uppercase">
+              Feed Health Dashboard
+            </h2>
+            <p className="font-mono text-xs tabular-nums text-zinc-600">
+              {healthyCount}/{feeds.length} healthy
+              {errorCount > 0 ? ` · ${errorCount} failing` : ''}
+            </p>
+          </div>
+
+          {feeds.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-zinc-200 p-8 text-center text-[13px] text-zinc-500">
+              No RSS or Atom feeds subscribed yet. Add a feed in the left
+              sidebar or import an OPML file.
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
+              <table className="w-full border-collapse text-left">
+                <thead>
+                  <tr className="border-b border-zinc-200 bg-zinc-50/70 text-[11px] font-medium tracking-wider text-zinc-500 uppercase">
+                    <th className="px-4 py-2.5">Source</th>
+                    <th className="px-4 py-2.5">Status</th>
+                    <th className="px-4 py-2.5">Items</th>
+                    <th className="hidden px-4 py-2.5 sm:table-cell">Last fetched</th>
+                    <th className="px-4 py-2.5 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-200 text-xs">
+                  {feeds.map((feed) => {
+                    const health = feedHealth[feed.id]
+                    const errText = health?.error || feedErrors[feed.id]
+                    return (
+                      <tr key={feed.id} className="hover:bg-zinc-50/60">
+                        <td className="max-w-xs px-4 py-3">
+                          <p className="truncate font-medium text-zinc-950">
+                            {feed.title}
+                          </p>
+                          <p className="truncate font-mono text-[11px] text-zinc-500">
+                            {feed.url}
+                          </p>
+                          {errText && (
+                            <p className="mt-1 text-[11px] text-red-600">
+                              Error: {errText}
+                            </p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {!health ? (
+                            <span className="inline-flex items-center gap-1 text-zinc-500">
+                              <Clock aria-hidden="true" className="size-3.5" />
+                              Pending
+                            </span>
+                          ) : health.ok ? (
+                            <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                              <CheckCircle2 aria-hidden="true" className="size-3.5" />
+                              Healthy
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 font-medium text-red-600">
+                              <AlertCircle aria-hidden="true" className="size-3.5" />
+                              Fetch error
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-mono tabular-nums text-zinc-900">
+                          {health ? health.itemCount : '—'}
+                        </td>
+                        <td className="hidden px-4 py-3 font-mono tabular-nums text-zinc-600 sm:table-cell">
+                          {health
+                            ? `${formatRefreshTime(health.lastFetchedAt)} (${timeAgo(health.lastFetchedAt)})`
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => onSelectFeed(feed.id)}
+                            className="h-7 gap-1 text-xs text-zinc-700 hover:text-zinc-950"
+                          >
+                            View feed
+                            <ArrowUpRight className="size-3" />
+                          </Button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <MermaidDiagram
+          chart={SYSTEM_PIPELINE_MERMAID}
+          caption="End-to-end deterministic scoring, Gemini TL;DR summarization, and Kiro spec generation pipeline."
+        />
 
             <section aria-label="Deterministic scoring weights">
               <h2 className="text-xs font-medium tracking-wider text-zinc-500 uppercase">
@@ -211,21 +336,18 @@ export default function SignalRadarView({
                 </div>
               </div>
             </section>
-          </motion.div>
-        </ScrollArea>
-      </main>
+      </PageShell>
     )
   }
 
   return (
-    <main aria-label="Signal radar analytics" className="min-h-0 flex-1 bg-white">
-      <ScrollArea className="h-full">
-        <motion.div
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.16, ease: 'easeOut' }}
-          className="mx-auto max-w-6xl space-y-6 px-6 py-6"
-        >
+    <PageShell
+      label="Signal radar analytics"
+      currentRoute="radar"
+      onNavigate={onNavigate}
+      maxWidth="max-w-6xl"
+    >
+      <div className="space-y-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <h1 className="text-lg font-semibold tracking-tight text-zinc-950">
@@ -483,21 +605,16 @@ export default function SignalRadarView({
 
                     <div className="space-y-4 md:col-span-7">
                       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                        {[
-                          { label: 'Relevance (42%)', val: focusDims.relevance },
-                          { label: 'Recency (24%)', val: focusDims.recency },
-                          { label: 'Authority (18%)', val: focusDims.authority },
-                          { label: 'Novelty (16%)', val: focusDims.novelty },
-                        ].map((d) => (
+                        {SIGNAL_DIMENSION_META.map((dim) => (
                           <div
-                            key={d.label}
+                            key={dim.key}
                             className="rounded-md border border-zinc-200 bg-zinc-50/60 p-3"
                           >
                             <span className="block text-[11px] text-zinc-500">
-                              {d.label}
+                              {dim.label} ({dim.weight}%)
                             </span>
                             <span className="mt-1 block font-mono text-base font-semibold tabular-nums text-zinc-950">
-                              {d.val}/100
+                              {focusDims[dim.key]}/100
                             </span>
                           </div>
                         ))}
@@ -529,8 +646,7 @@ export default function SignalRadarView({
               )}
             </div>
           )}
-        </motion.div>
-      </ScrollArea>
-    </main>
+      </div>
+    </PageShell>
   )
 }

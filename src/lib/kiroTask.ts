@@ -1,11 +1,13 @@
 import type { FeedItem } from './feeds'
 import { summarize } from './format'
+import type { AIProviderId } from './providers'
 import { createZipBytes } from './zip'
 
 export interface GeminiSummary {
   tldr: string
   takeaways: string[]
   whyMatters: string
+  provider?: AIProviderId
 }
 
 export interface KiroSpecBundle {

@@ -1,25 +1,32 @@
 # Spec: Resurrected Reader v1 — Design
 
 ## Architecture
-React 19 + Vite 8 + TypeScript + Tailwind v4 app paired with a lightweight Express server (`server.ts`) for server-side Gemini TL;DR summarization (`/api/summarize`) and SSRF-guarded OpenGraph image enrichment (`/api/og-images`).
+React 19 + Vite 8 + TypeScript + Tailwind v4 app paired with a lightweight Express server (`server.ts` + `server/ai.ts`) for server-side RSS proxying (`/api/rss`), Vercel AI SDK v7 multi-provider summarization (`/api/summarize` with `generateObject`/`generateText` over `Gemini → OpenAI → Anthropic → Bedrock` + `@google/genai` direct path), provider discovery (`/api/providers`), semantic search embeddings (`/api/embed`), and SSRF-guarded OpenGraph image enrichment (`/api/og-images`).
 
 ```
-fetch RSS/Pulse → extract media + normalize → 4D deterministic score → Reader / Signal Radar / Kiro Task
+fetch RSS/Pulse → extract media + normalize → 4D deterministic score → Reader / Briefing / Signal Radar / Kiro Task
 ```
 
-- `src/lib/feeds.ts` — `fetchFeed(source)` via `https://api.rss2json.com/v1/api.json?rss_url=` (primary) with fallback to `api.allorigins.win` / direct CORS `DOMParser`; extracts `imageUrl` from `media:content`, `media:thumbnail`, `enclosure`, `og:image`, and HTML `<img>`.
-- `src/lib/scoring.ts` — `scoreItem(...)` and `explainScore(...)`: deterministic 4-dimension (0–100 each) model combining `relevance` (42%), `recency` (24%), `authority` (18%), and `novelty` (16%).
-- `src/lib/pulse.ts` — Hacker News Firebase API & GitHub Search API (`topic:aws`) builder pulse with GitHub OpenGraph/avatar thumbnails.
+- `server/ai.ts` — multi-provider Vercel AI SDK v7 router (`generateObject`, `generateText`, `embed`, `embedMany`, `cosineSimilarity`) sitting above the `@google/genai` direct Gemini path (`gemini-4-hydrogen`); silently skips unconfigured keys.
+- `src/lib/providers.ts` — pure provider metadata, fallback chain order (`resolveSummarizeOrder`, `resolveEmbeddingOrder`), and cosine search ranking helper (`rankItemsByCosine`).
+- `src/lib/feeds.ts` — `fetchFeed(source)` via same-origin `/api/rss?url=` (primary) with fallback to `api.rss2json.com` and `api.allorigins.win` `DOMParser`; extracts `imageUrl` from `media:content`, `media:thumbnail`, `enclosure`, `og:image`, and HTML `<img>`.
+- `src/lib/scoring.ts` — `scoreItem(...)`, `explainScore(...)`, and `SIGNAL_DIMENSION_META`: deterministic 4-dimension (0–100 each) model combining `relevance` (42%), `recency` (24%), `authority` (18%), and `novelty` (16%).
+- `src/lib/briefing.ts` — pure selectors & search: `selectDailyBriefingItems`, `isNewSince`, `countNewSince`, `fuzzyMatchScore`, and `searchCommandTargets` (indexing views, feeds, items, and production pages).
+- `src/lib/routes.ts` — History API route parser and URL builder for `/`, `/briefing`, `/radar`, `/system`, `/docs`, `/shortcuts`, `/about`, `/changelog`, `/privacy`, `/settings`, and `*` (`not-found`).
+- `src/lib/shortcuts.ts` — single source of truth `KEYBOARD_SHORTCUTS` registry used by both the `ShortcutsPage` and the `?` `KeyboardShortcutsModal`.
+- `src/lib/export.ts` — pure `formatItemAsMarkdown`, `buildFullDataExport`, `downloadJsonExport`, safe `openExternalUrl`, and `copyPlainText` utilities.
+- `src/lib/storage.ts` — resilient `localStorage` helpers, `rr.lastVisit.v1` checkpoint management, `ReaderSettings` sanitization/persistence (`rr.settings.v1`, including `aiProvider`), and `clearReaderStorage`.
+- `src/lib/pulse.ts` — Hacker News Firebase API & GitHub Search API (`topic:aws`) builder pulse with GitHub avatar thumbnails.
 - `src/lib/sampleData.ts` — 6 realistic sample items (AWS/Kiro/AI-agents themed), used only when all feeds fail or return empty.
-- `src/components/` — `TopBar` (with view switcher: `Feed` | `Signal Radar` | `System`), `FeedList`, `ItemList` (thumbnails + 1-line summary), `ReaderPane` (cover banner + animated score + Gemini TL;DR), `SignalRadarView` (Recharts histogram, feed activity, 4D radar chart + Mermaid pipeline), `KiroTaskModal` (3-file spec tabs + Mermaid pipeline tab + `.zip` download), `ItemThumbnail`, `AnimatedScore`, `MermaidDiagram`, `SafeHtml`, and `shadcn/ui` primitives in `src/components/ui/`.
-- `src/App.tsx` — state (feeds, items, pulse, selection, filters, saved/read sets, cached summaries), `localStorage` persistence, keyboard shortcuts, and non-blocking `/api/og-images` cover enrichment.
+- `src/components/` — `TopBar` (shared `layoutId` view switcher: `Feed` | `Briefing` | `Signal Radar` | `System`, `Cmd+K` trigger, `?` shortcuts button, and directory menu), `FeedList`, `ItemList`, `ReaderPane` (including `Copy Markdown` and density support), `DailyBriefingView`, `SignalRadarView` (with live **Feed Health Dashboard** table), `PageShell`, `DocsPage`, `ShortcutsPage`, `AboutPage`, `ChangelogPage`, `PrivacyPolicyPage`, `SettingsPage`, `NotFoundPage`, `KeyboardShortcutsModal`, `CommandPalette`, `ScoreBreakdownPopover`, `KiroTaskModal`, `ItemThumbnail`, `AnimatedScore`, `MermaidDiagram`, `SafeHtml`, and `shadcn/ui` primitives (`switch`, `button`, `dialog`, `dropdown-menu`, etc.) in `src/components/ui/`.
+- `src/App.tsx` — History API routing (`pushState`, `popstate`, `document.title`), state orchestration (feeds, feed health, items, pulse, selection, filters, saved/read sets, cached summaries, settings, `MotionConfig`), `localStorage` persistence, and global keyboard shortcuts (`Cmd+K`, `?`, `j`, `k`, `Enter`, `o`, `s`, `e`, `b`, `r`, `/`).
 
 ## Data flow
-1. On load: read feeds + cached pulse + summaries + state from `localStorage`; seed default feeds if none.
-2. Fetch all feeds + Community Pulse in parallel; extract feed media; score each item across 4 dimensions; sort by score desc, date desc.
+1. On load: read feeds, cached pulse, summaries, reader settings (`density`, `defaultFilter`, `highSignalThreshold`, `reducedMotion`), and previous visit timestamp from `localStorage`; seed default feeds if none; parse `window.location.pathname` to set initial route.
+2. Fetch all feeds + Community Pulse in parallel; record per-feed health (`lastFetchedAt`, `itemCount`, `error`); extract feed media; score each item across 4 dimensions; sort by score desc, date desc.
 3. Enrich items missing RSS images with real article `og:image` metadata via `POST /api/og-images` (cached server-side).
-4. Render 3-pane Reader (`Feed`), real-data Recharts analytics (`Signal Radar`), or Mermaid architecture diagram (`System`).
-5. "→ Kiro task" opens `KiroTaskModal` with `tasks.md`, `requirements.md`, `design.md`, and `pipeline` Mermaid preview, plus clipboard copy and `.zip` bundle download.
+4. Render 3-pane Reader (`/`), Top 5 Gemini digest (`/briefing`), Recharts analytics (`/radar`), System & Feed Health Dashboard (`/system`), or any editorial/utility page (`/docs`, `/shortcuts`, `/about`, `/changelog`, `/privacy`, `/settings`, or `404`).
+5. "→ Kiro task" (`e`) opens `KiroTaskModal` with `tasks.md`, `requirements.md`, `design.md`, and `pipeline` Mermaid preview, plus clipboard copy and `.zip` bundle download.
 
 ## Scoring formula (4 deterministic dimensions, 0–100 each)
 ```

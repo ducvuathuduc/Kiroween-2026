@@ -18,3 +18,15 @@
 - [x] 16. Build `SignalRadarView` (Recharts score histogram, per-feed activity, and 4D item radar chart) plus `MermaidDiagram` system pipeline in both `System` view and `KiroTaskModal`.
 - [x] 17. Reduce `ItemList` text density with thumbnail + title + 1-line summary (prioritizing Gemini TL;DR first line) and compact metadata.
 - [x] 18. Polish `motion` micro-interactions (score count-up, row hover lift, skeleton shimmer, filter/pane transitions) and verify desktop + mobile captures.
+- [x] 19. Decouple pure `src/lib/briefing.ts` and `src/lib/storage.ts` modules with unit tests (`tests/briefing.test.ts`); export `SIGNAL_DIMENSION_META` in `src/lib/scoring.ts`.
+- [x] 20. Implement `CommandPalette.tsx` (`Cmd+K` / `Ctrl+K`, fuzzy search across views, feeds, and items, full arrow/Enter keyboard control).
+- [x] 21. Implement `j` / `k` / `Enter` keyboard navigation through the item list and reader focus handoff.
+- [x] 22. Implement shared `ScoreBreakdownPopover.tsx` ("Why this score") reusing `explainScore()` dimensions, weights, and matched cues across list, reader, and briefing views.
+- [x] 23. Implement `DailyBriefingView.tsx` (Top 5 high-signal items built from Gemini TL;DRs with progressive generation & reader/Kiro handoff).
+- [x] 24. Implement "New since last visit" markers (`rr.lastVisit.v1`) and per-feed health metadata (last fetched time + item count) in `FeedList.tsx`.
+- [x] 25. Add `motion` `layoutId` pane/selection transitions and staggered list entrance; audit unused code and verify tests, tsc, build, lint, and desktop/mobile screenshots.
+- [x] 26. Add pure History API routing (`src/lib/routes.ts`) and full pages (`DocsPage`, `ShortcutsPage`, `AboutPage`, `ChangelogPage`, `PrivacyPolicyPage`, `SettingsPage`, `NotFoundPage`) sharing `PageShell` and indexed in Command Palette.
+- [x] 27. Add developer shortcuts catalog (`src/lib/shortcuts.ts`), `?` `KeyboardShortcutsModal`, and wire `o` (open original), `s` (summarize), `e` (export Kiro task), and `b` (bookmark) shortcuts.
+- [x] 28. Add pure Markdown & JSON backup exports (`src/lib/export.ts`), ReaderPane `Copy Markdown` button, and live Feed Health Dashboard in `/system`.
+- [x] 29. Persist `ReaderSettings` (`density`, `defaultFilter`, `reducedMotion`), add `Switch` primitive, unit test (`tests/production.test.ts`), and verify build, lint, and browser captures.
+- [x] 30. Integrate Vercel AI SDK v7 (`server/ai.ts`, `src/lib/providers.ts`): `GET /api/providers`, `POST /api/summarize` (`generateObject`/`generateText` chain Gemini → OpenAI → Anthropic → Bedrock over direct `@google/genai`), Settings provider picker, and `POST /api/embed` semantic cosine search with keyword fallback.

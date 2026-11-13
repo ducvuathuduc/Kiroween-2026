@@ -1,12 +1,16 @@
+import { useEffect, useRef } from 'react'
 import { Listbox, ListboxItem } from '@ui-sdk/react/listbox'
 import { ArrowUpDown, Sparkles, Star } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
+import { isNewSince } from '../lib/briefing'
 import type { FeedItem } from '../lib/feeds'
-import { scoreBadgeClass, summarize, timeAgo } from '../lib/format'
+import { summarize, timeAgo } from '../lib/format'
 import type { GeminiSummary } from '../lib/kiroTask'
+import { getProviderDisplayName, type AIProviderId } from '../lib/providers'
+import type { ReaderDensity } from '../lib/storage'
 import ItemThumbnail from './ItemThumbnail'
+import ScoreBreakdownPopover from './ScoreBreakdownPopover'
 import type { SortBy } from './TopBar'
-import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import {
   DropdownMenu,
@@ -33,6 +37,7 @@ interface ItemListProps {
   loading: boolean
   selectedId: string | null
   onSelect: (id: string) => void
+  onOpenItem: (id: string) => void
   filter: Filter
   onFilterChange: (f: Filter) => void
   sortBy: SortBy
@@ -42,7 +47,16 @@ interface ItemListProps {
   readIds: string[]
   savedIds: string[]
   summaries: Record<string, GeminiSummary>
+  lastVisitIso: string | null
+  newCount: number
+  density?: ReaderDensity
+  semanticInfo?: {
+    active: boolean
+    provider: AIProviderId | null
+  }
+  onMarkAllVisited: () => void
   onToggleSave: (id: string) => void
+  onOpenRadar: () => void
   onRefresh: () => void
   pulseError?: string
 }
@@ -58,6 +72,7 @@ export default function ItemList({
   loading,
   selectedId,
   onSelect,
+  onOpenItem,
   filter,
   onFilterChange,
   sortBy,
@@ -67,18 +82,31 @@ export default function ItemList({
   readIds,
   savedIds,
   summaries,
+  lastVisitIso,
+  newCount,
+  density = 'comfortable',
+  semanticInfo,
+  onMarkAllVisited,
   onToggleSave,
+  onOpenRadar,
   onRefresh,
   pulseError,
 }: ItemListProps) {
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const hasActiveFilter = query.trim() !== '' || filter !== 'all'
+
+  useEffect(() => {
+    if (!selectedId) return
+    const row = rowRefs.current.get(selectedId)
+    row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedId])
 
   const emptyMessage = (() => {
     if (query.trim()) return `No items match “${query.trim()}”.`
     if (filter === 'high') return 'No high-signal items (≥70) in this view.'
     if (filter === 'unread') return 'All caught up — no unread items here.'
     if (filter === 'saved') {
-      return 'No saved items yet. Click the star icon or press s to save one.'
+      return 'No saved items yet. Click the star icon or press b to save one.'
     }
     return 'No items available for the current feed selection.'
   })()
@@ -141,6 +169,37 @@ export default function ItemList({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {newCount > 0 && (
+        <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50/80 px-3.5 py-1.5 text-[11px] text-zinc-600">
+          <span>
+            <strong className="font-mono font-semibold tabular-nums text-zinc-950">
+              {newCount}
+            </strong>{' '}
+            new since last visit
+          </span>
+          <button
+            type="button"
+            onClick={onMarkAllVisited}
+            className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+          >
+            Mark caught up
+          </button>
+        </div>
+      )}
+
+      {query.trim().length >= 2 && semanticInfo?.active && semanticInfo.provider && (
+        <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50/80 px-3.5 py-1.5 text-[11px] text-zinc-600">
+          <span className="inline-flex items-center gap-1.5">
+            <Sparkles aria-hidden="true" className="size-3 text-zinc-700" />
+            Semantic cosine ranking ·{' '}
+            <strong className="font-medium text-zinc-950">
+              {getProviderDisplayName(semanticInfo.provider)}
+            </strong>
+          </span>
+          <span className="font-mono text-[10px] text-zinc-500">embed</span>
+        </div>
+      )}
 
       {pulseError && (
         <p
@@ -223,11 +282,11 @@ export default function ItemList({
                 loop
                 className="outline-none"
               >
-                {items.map((item) => {
+                {items.map((item, idx) => {
                   const isRead = readIds.includes(item.id)
                   const isSaved = savedIds.includes(item.id)
                   const isSelected = selectedId === item.id
-                  const score = item.score ?? 0
+                  const isNew = isNewSince(item.pubDate, lastVisitIso)
                   const aiSummary = summaries[item.id]
                   const oneLine = aiSummary?.tldr
                     ? firstLine(aiSummary.tldr)
@@ -240,26 +299,49 @@ export default function ItemList({
                   return (
                     <motion.div
                       key={item.id}
+                      ref={(el) => {
+                        if (el) rowRefs.current.set(item.id, el)
+                        else rowRefs.current.delete(item.id)
+                      }}
                       role="none"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
                       whileHover={{ y: -1 }}
-                      transition={{ duration: 0.14, ease: 'easeOut' }}
-                      className={`group flex items-start border-b border-l-2 border-b-zinc-200 transition-colors hover:bg-zinc-50/90 ${
-                        isSelected
-                          ? 'border-l-zinc-950 bg-zinc-100/80'
-                          : 'border-l-transparent bg-white'
+                      transition={{
+                        duration: 0.16,
+                        delay: Math.min(idx, 8) * 0.02,
+                        ease: 'easeOut',
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && e.target === e.currentTarget.querySelector('[role="option"]')) {
+                          onOpenItem(item.id)
+                        }
+                      }}
+                      className={`group relative flex items-start border-b border-b-zinc-200 transition-colors hover:bg-zinc-50/90 ${
+                        isSelected ? 'bg-zinc-100/80' : 'bg-white'
                       }`}
                     >
+                      {isSelected && (
+                        <motion.span
+                          layoutId="itemlist-active-bar"
+                          aria-hidden="true"
+                          transition={{ duration: 0.18, ease: 'easeOut' }}
+                          className="absolute inset-y-0 left-0 w-0.5 bg-zinc-950"
+                        />
+                      )}
+
                       <ListboxItem
                         value={item.id}
                         label={item.title}
-                        className={`flex min-w-0 flex-1 cursor-pointer items-start gap-3 px-3.5 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-inset ${
-                          isRead && !isSelected ? 'opacity-75' : ''
-                        }`}
+                        className={`flex min-w-0 flex-1 cursor-pointer items-start gap-3 pr-2 pl-3.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-inset ${
+                          density === 'compact' ? 'py-2' : 'py-3'
+                        } ${isRead && !isSelected ? 'opacity-75' : ''}`}
                       >
                         <ItemThumbnail
                           src={item.imageUrl}
                           title={item.title}
                           feedTitle={item.feedTitle}
+                          className={density === 'compact' ? 'size-10' : ''}
                         />
                         <span className="min-w-0 flex-1">
                           <span
@@ -287,24 +369,36 @@ export default function ItemList({
                             <span className="min-w-0 truncate">{oneLine}</span>
                           </span>
                           <span className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-500">
-                            <Badge
-                              variant="outline"
-                              title="Deterministic signal score (not AI)"
-                              className={`shrink-0 rounded px-1.5 py-0 font-mono text-[10px] font-semibold tabular-nums ${scoreBadgeClass(score)}`}
-                            >
-                              {score}
-                            </Badge>
                             <span className="min-w-0 truncate">
                               {item.feedTitle}
                               {metricLabel ? ` · ${metricLabel}` : ''} ·{' '}
                               {timeAgo(item.pubDate)}
                               {item.sample ? ' · SAMPLE' : ''}
                             </span>
+                            {isNew && (
+                              <span
+                                aria-label="New since last visit"
+                                className="shrink-0 font-mono text-[10px] font-semibold text-zinc-950"
+                              >
+                                · New
+                              </span>
+                            )}
                           </span>
                         </span>
                       </ListboxItem>
 
-                      <div role="none" className="pt-2.5 pr-2">
+                      <div
+                        role="none"
+                        className={`flex shrink-0 flex-col items-end gap-1.5 pr-2.5 ${
+                          density === 'compact' ? 'pt-2' : 'pt-3'
+                        }`}
+                      >
+                        <ScoreBreakdownPopover
+                          item={item}
+                          align="end"
+                          onSelectItem={onSelect}
+                          onOpenRadar={onOpenRadar}
+                        />
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -338,7 +432,7 @@ export default function ItemList({
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>
-                            {isSaved ? 'Remove bookmark (s)' : 'Save item (s)'}
+                            {isSaved ? 'Remove bookmark (b)' : 'Save item (b)'}
                           </TooltipContent>
                         </Tooltip>
                       </div>

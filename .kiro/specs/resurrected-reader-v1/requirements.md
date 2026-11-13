@@ -25,6 +25,14 @@
 - [x] "Summarize" generates a structured Gemini TL;DR via server-side `POST /api/summarize` without exposing `GEMINI_API_KEY`.
 - [x] Community Pulse displays live Hacker News top stories and GitHub `topic:aws` repositories with `localStorage` + session caching.
 - [x] OPML import/export (Google Reader `.opml`), Web Share (`navigator.share` + clipboard fallback), and high-signal notifications (`≥85`) work natively.
-- [x] Keyboard: j/k move selection, s save/unsave, r refresh.
+- [x] Keyboard: j/k move selection, Enter opens/focuses item in reader, s save/unsave, r refresh, / search, Cmd/Ctrl+K opens fuzzy command palette.
+- [x] "Why this score" click/keyboard breakdown popover on every item showing all 4 dimensions (relevance 42%, recency 24%, authority 18%, novelty 16%), weighted points, and matched explainScore() cues.
+- [x] Dedicated "Daily Briefing" view highlighting top 5 high-signal items built from Gemini TL;DRs with one-click generation and reader/Kiro task handoff.
+- [x] "New since last visit" markers backed by localStorage (`rr.lastVisit.v1`) and per-feed health metadata (last fetched timestamp + item count).
+- [x] History API multi-page routes (`/docs`, `/shortcuts`, `/settings`, `/about`, `/changelog`, `/privacy`, plus `404` Not Found) sharing the Vercel Geist + shadcn/ui design system, with zero lorem ipsum.
+- [x] Full developer workflow: `j`/`k`/`Enter`/`/`/`⌘K`/`o`/`s`/`e`/`b`/`r`/`?` keyboard shortcuts + `?` quick modal, Copy item as Markdown, Export all data as JSON, Settings (`density`, `defaultFilter`, alerts, `reducedMotion`), and Feed Health Dashboard inside `/system`.
+- [x] "Summarize" routes through Vercel AI SDK v7 (`generateObject` + `generateText`) across configured providers (`Gemini → OpenAI → Anthropic → Amazon Bedrock`, preserving `@google/genai` direct Gemini path), skipping unconfigured providers silently without exposing server keys.
+- [x] `GET /api/providers` reports live server-configured providers to Settings; unconfigured providers remain unselectable on the client.
+- [x] Search box performs AI SDK `embed` + `cosineSimilarity` semantic ranking (`POST /api/embed`) when an embedding provider is available, falling back cleanly to local keyword search otherwise.
 - [x] 6 sample items bundled so first open looks alive offline; labeled as sample.
 - [x] `npm run build` passes; no console errors on load; no dead buttons; no lorem ipsum.

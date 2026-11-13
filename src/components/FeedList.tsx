@@ -9,8 +9,15 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react'
+import type { FeedHealth } from '../lib/briefing'
 import type { FeedSource } from '../lib/feeds'
-import { feedMonogram, safeHttpUrl } from '../lib/format'
+import {
+  feedMonogram,
+  formatRefreshTime,
+  safeHttpUrl,
+  timeAgo,
+} from '../lib/format'
+import { routeToPath, type NavigableRoute } from '../lib/routes'
 import { Avatar, AvatarFallback } from './ui/avatar'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
@@ -20,6 +27,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from './ui/hover-card'
 import { Input } from './ui/input'
 import { ScrollArea } from './ui/scroll-area'
 import { Separator } from './ui/separator'
@@ -30,6 +38,7 @@ interface FeedListProps {
   unreadCounts: Record<string, number>
   totalUnread: number
   pulseCounts: { hn: number; github: number }
+  feedHealth: Record<string, FeedHealth>
   selectedFeed: string
   onSelect: (feedId: string) => void
   onAdd: (url: string) => { ok: boolean; error?: string }
@@ -37,6 +46,8 @@ interface FeedListProps {
   onRestoreDefaults: () => void
   onImportOpml: (xml: string) => { ok: boolean; message: string }
   onExportOpml: () => void
+  onNavigate: (route: NavigableRoute) => void
+  onOpenShortcutsModal: () => void
   errors: Record<string, string>
 }
 
@@ -45,6 +56,7 @@ export default function FeedList({
   unreadCounts,
   totalUnread,
   pulseCounts,
+  feedHealth,
   selectedFeed,
   onSelect,
   onAdd,
@@ -52,6 +64,8 @@ export default function FeedList({
   onRestoreDefaults,
   onImportOpml,
   onExportOpml,
+  onNavigate,
+  onOpenShortcutsModal,
   errors,
 }: FeedListProps) {
   const [url, setUrl] = useState('')
@@ -252,42 +266,102 @@ export default function FeedList({
             </Button>
           </div>
         ) : (
-          <ul className="space-y-0.5">
+          <ul className="space-y-1">
             {feeds.map((feed) => {
               const count = unreadCounts[feed.id] ?? 0
               const isSelected = selectedFeed === feed.id
+              const health = feedHealth[feed.id]
+              const feedErr = errors[feed.id]
+
               return (
                 <li key={feed.id} className="group">
-                  <div className="flex items-center gap-0.5">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => onSelect(feed.id)}
-                      aria-current={isSelected ? 'true' : undefined}
-                      title={feed.url}
-                      className={`h-8 min-w-0 flex-1 justify-start gap-2 px-2 text-[13px] shadow-none ${
-                        isSelected
-                          ? 'bg-zinc-100 font-semibold text-zinc-950'
-                          : 'font-normal text-zinc-700 hover:bg-zinc-100/70 hover:text-zinc-950'
-                      }`}
-                    >
-                      <Avatar size="sm" className="size-5 border border-zinc-200">
-                        <AvatarFallback className="bg-white font-mono text-[9px] font-medium text-zinc-700">
-                          {feedMonogram(feed.title)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="min-w-0 flex-1 truncate text-left">
-                        {feed.title}
-                      </span>
-                      {count > 0 && (
-                        <Badge
-                          variant="secondary"
-                          className="h-4 rounded px-1.5 font-mono text-[10px] font-medium tabular-nums text-zinc-600"
+                  <div className="flex items-start gap-0.5">
+                    <HoverCard openDelay={260} closeDelay={80}>
+                      <HoverCardTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => onSelect(feed.id)}
+                          aria-current={isSelected ? 'true' : undefined}
+                          className={`h-auto min-h-9 min-w-0 flex-1 items-start justify-start gap-2 px-2 py-1.5 text-[13px] shadow-none ${
+                            isSelected
+                              ? 'bg-zinc-100 font-semibold text-zinc-950'
+                              : 'font-normal text-zinc-700 hover:bg-zinc-100/70 hover:text-zinc-950'
+                          }`}
                         >
-                          {count}
-                        </Badge>
-                      )}
-                    </Button>
+                          <Avatar
+                            size="sm"
+                            className="mt-0.5 size-5 shrink-0 border border-zinc-200"
+                          >
+                            <AvatarFallback className="bg-white font-mono text-[9px] font-medium text-zinc-700">
+                              {feedMonogram(feed.title)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="min-w-0 flex-1 text-left">
+                            <span className="block truncate">{feed.title}</span>
+                            {health && (
+                              <span
+                                className={`block truncate font-mono text-[10px] font-normal tabular-nums ${
+                                  health.ok ? 'text-zinc-400' : 'text-red-600'
+                                }`}
+                              >
+                                {health.ok
+                                  ? `${health.itemCount} items · ${timeAgo(health.lastFetchedAt)}`
+                                  : `Error · ${timeAgo(health.lastFetchedAt)}`}
+                              </span>
+                            )}
+                          </span>
+                          {count > 0 && (
+                            <Badge
+                              variant="secondary"
+                              className="mt-0.5 h-4 shrink-0 rounded px-1.5 font-mono text-[10px] font-medium tabular-nums text-zinc-600"
+                            >
+                              {count}
+                            </Badge>
+                          )}
+                        </Button>
+                      </HoverCardTrigger>
+                      <HoverCardContent side="right" align="start" className="w-64 p-3">
+                        <p className="text-xs font-semibold text-zinc-950">
+                          {feed.title}
+                        </p>
+                        <p className="mt-0.5 truncate font-mono text-[10px] text-zinc-500">
+                          {feed.url}
+                        </p>
+                        <Separator className="my-2" />
+                        {health ? (
+                          <dl className="space-y-1 text-[11px]">
+                            <div className="flex justify-between">
+                              <dt className="text-zinc-500">Status</dt>
+                              <dd
+                                className={`font-medium ${
+                                  health.ok ? 'text-emerald-700' : 'text-red-600'
+                                }`}
+                              >
+                                {health.ok ? 'Healthy' : 'Fetch error'}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between">
+                              <dt className="text-zinc-500">Items fetched</dt>
+                              <dd className="font-mono tabular-nums text-zinc-950">
+                                {health.itemCount}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between">
+                              <dt className="text-zinc-500">Last checked</dt>
+                              <dd className="font-mono tabular-nums text-zinc-950">
+                                {formatRefreshTime(health.lastFetchedAt) ||
+                                  timeAgo(health.lastFetchedAt)}
+                              </dd>
+                            </div>
+                          </dl>
+                        ) : (
+                          <p className="text-[11px] text-zinc-500">
+                            Waiting for initial fetch…
+                          </p>
+                        )}
+                      </HoverCardContent>
+                    </HoverCard>
 
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -296,7 +370,7 @@ export default function FeedList({
                           variant="ghost"
                           size="icon-xs"
                           aria-label={`Actions for ${feed.title}`}
-                          className="touch-visible shrink-0 text-zinc-400 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 hover:text-zinc-950 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                          className="touch-visible mt-1 shrink-0 text-zinc-400 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 hover:text-zinc-950 focus-visible:opacity-100 data-[state=open]:opacity-100"
                         >
                           <MoreHorizontal className="size-3.5" />
                         </Button>
@@ -316,14 +390,14 @@ export default function FeedList({
                     </DropdownMenu>
                   </div>
 
-                  {errors[feed.id] && (
+                  {feedErr && (
                     <p
                       role="status"
                       className="px-2.5 pb-1.5 text-[11px] text-red-600"
                     >
-                      {/^failed/i.test(errors[feed.id])
-                        ? errors[feed.id]
-                        : `Failed: ${errors[feed.id]}`}
+                      {/^failed/i.test(feedErr)
+                        ? feedErr
+                        : `Failed: ${feedErr}`}
                     </p>
                   )}
                 </li>
@@ -374,6 +448,41 @@ export default function FeedList({
             </p>
           )}
         </form>
+        <nav
+          aria-label="Workspace resources"
+          className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 border-t border-zinc-200/80 pt-2 text-[11px] text-zinc-500"
+        >
+          {(
+            [
+              ['docs', 'Docs'],
+              ['settings', 'Settings'],
+              ['about', 'About'],
+              ['changelog', 'Changelog'],
+              ['privacy', 'Privacy'],
+            ] as const
+          ).map(([route, label]) => (
+            <a
+              key={route}
+              href={routeToPath(route)}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+                e.preventDefault()
+                onNavigate(route)
+              }}
+              className="hover:text-zinc-950 hover:underline underline-offset-2"
+            >
+              {label}
+            </a>
+          ))}
+          <button
+            type="button"
+            onClick={onOpenShortcutsModal}
+            className="ml-auto font-mono text-[11px] text-zinc-500 hover:text-zinc-950"
+            title="Keyboard shortcuts (?)"
+          >
+            ? keys
+          </button>
+        </nav>
       </div>
     </aside>
   )
