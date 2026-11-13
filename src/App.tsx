@@ -38,6 +38,7 @@ import {
   type ProviderStatus,
 } from './lib/providers'
 import { fetchCommunityPulse, type PulseSnapshot } from './lib/pulse'
+import { reloadPwa, startPwaUpdates, type UpdateState } from './lib/pwa/updates'
 import {
   getRouteMeta,
   parseRoutePath,
@@ -48,19 +49,23 @@ import {
 import { getSampleItems } from './lib/sampleData'
 import { explainScore } from './lib/scoring'
 import {
+  cachedCoverImages,
   clearReaderStorage,
   DEFAULT_SETTINGS,
   initSessionVisitTimestamp,
   loadSettings,
+  loadReaderSnapshot,
   loadStorage,
   recordVisitTimestamp,
   saveStorage,
+  saveReaderSnapshot,
   SETTINGS_STORAGE_KEY,
   type ReaderSettings,
 } from './lib/storage'
 
 async function fetchMissingOgImages(
   candidates: FeedItem[],
+  onFresh: (images: Record<string, string | null>) => void,
 ): Promise<Record<string, string | null>> {
   const urls = [
     ...new Set(
@@ -70,21 +75,7 @@ async function fetchMissingOgImages(
     ),
   ].slice(0, 12)
   if (urls.length === 0) return {}
-  try {
-    const res = await fetch('/api/og-images', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ urls }),
-      signal: AbortSignal.timeout(5000),
-    })
-    if (!res.ok) return {}
-    const json = (await res.json()) as {
-      images?: Record<string, string | null>
-    }
-    return json.images ?? {}
-  } catch {
-    return {}
-  }
+  return cachedCoverImages(urls, onFresh)
 }
 
 export default function App() {
@@ -154,6 +145,42 @@ export default function App() {
   } | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const readerHeadingRef = useRef<HTMLHeadingElement>(null)
+  const realItemsRef = useRef<FeedItem[]>([])
+  const [offline, setOffline] = useState(!navigator.onLine)
+  const [restored, setRestored] = useState(false)
+  const [updateState, setUpdateState] = useState<UpdateState>('idle')
+  const [updateError, setUpdateError] = useState('')
+  const [updateDismissed, setUpdateDismissed] = useState(false)
+  const updateNoticeRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    if (updateState !== 'idle' && !updateDismissed) updateNoticeRef.current?.showPopover?.()
+  }, [updateState, updateDismissed])
+
+  useEffect(() => {
+    const changed = () => setOffline(!navigator.onLine)
+    window.addEventListener('online', changed)
+    window.addEventListener('offline', changed)
+    return () => {
+      window.removeEventListener('online', changed)
+      window.removeEventListener('offline', changed)
+    }
+  }, [])
+  useEffect(() => {
+    if (import.meta.env.PROD) return startPwaUpdates(setUpdateState)
+  }, [])
+
+  const handleUpdate = async () => {
+    setUpdateState('reloading')
+    setUpdateError('')
+    try {
+      await saveReaderSnapshot({ items, pulse, feedHealth, fetchedAt: lastRefresh ?? '', selectedId, selectedFeed })
+      await reloadPwa()
+    } catch (error) {
+      setUpdateState('error')
+      setUpdateError(error instanceof Error ? error.message : 'Reload failed. Try again online.')
+    }
+  }
 
   const navigateTo = useCallback((route: NavigableRoute) => {
     const nextPath = routeToPath(route)
@@ -218,6 +245,11 @@ export default function App() {
 
   const refresh = useCallback(
     async (currentFeeds: FeedSource[], forcePulse = false) => {
+      if (!navigator.onLine) {
+        setLoading(false)
+        setPulseLoading(false)
+        return
+      }
       setLoading(true)
       setPulseLoading(true)
 
@@ -281,18 +313,19 @@ export default function App() {
           }
         })
         setItems(scoredItems)
+        realItemsRef.current = scoredItems
         setUsingSample(false)
         notifyHighSignal(scoredItems, alertsEnabled)
-      } else {
+        setLastRefresh(new Date().toISOString())
+      } else if (realItemsRef.current.length === 0) {
         scoredItems = getSampleItems()
         setItems(scoredItems)
         setUsingSample(true)
       }
-      setLastRefresh(new Date().toISOString())
       setLoading(false)
 
       if (live.length > 0) {
-        void fetchMissingOgImages(scoredItems).then((imgMap) => {
+        const applyImages = (imgMap: Record<string, string | null>) => {
           if (Object.keys(imgMap).length === 0) return
           setItems((prev) =>
             prev.map((it) =>
@@ -301,7 +334,8 @@ export default function App() {
                 : it,
             ),
           )
-        })
+        }
+        void fetchMissingOgImages(scoredItems, applyImages).then(applyImages)
       }
 
       const pulseSnap = await pulsePromise
@@ -309,7 +343,7 @@ export default function App() {
       setPulseLoading(false)
 
       if (pulseSnap.hn.length > 0) {
-        void fetchMissingOgImages(pulseSnap.hn).then((imgMap) => {
+        const applyImages = (imgMap: Record<string, string | null>) => {
           if (Object.keys(imgMap).length === 0) return
           setPulse((prev) => ({
             ...prev,
@@ -319,7 +353,8 @@ export default function App() {
                 : it,
             ),
           }))
-        })
+        }
+        void fetchMissingOgImages(pulseSnap.hn, applyImages).then(applyImages)
       }
     },
     [alertsEnabled, notifyHighSignal],
@@ -342,13 +377,35 @@ export default function App() {
   }, [alertsEnabled])
 
   useEffect(() => {
-    void refresh(feeds, false)
+    let active = true
+    void loadReaderSnapshot().then((snapshot) => {
+      if (!active) return
+      if (snapshot) {
+        realItemsRef.current = snapshot.items
+        setItems(snapshot.items)
+        setPulse(snapshot.pulse)
+        setFeedHealth(snapshot.feedHealth)
+        setLastRefresh(snapshot.fetchedAt)
+        setSelectedId(snapshot.selectedId)
+        setSelectedFeed(snapshot.selectedFeed)
+      }
+      setRestored(true)
+      void refresh(feeds, false)
+    })
+    return () => { active = false }
     // Fetch once on mount; Refresh button re-runs it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
+    if (!restored || !lastRefresh || usingSample) return
+    realItemsRef.current = items
+    void saveReaderSnapshot({ items, pulse, feedHealth, fetchedAt: lastRefresh, selectedId, selectedFeed })
+  }, [restored, lastRefresh, usingSample, items, pulse, feedHealth, selectedId, selectedFeed])
+
+  useEffect(() => {
     let active = true
+    if (!navigator.onLine) return
     void fetch('/api/providers', { signal: AbortSignal.timeout(4000) })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { providers?: ProviderStatus[] } | null) => {
@@ -532,6 +589,10 @@ export default function App() {
 
   const handleSummarize = useCallback(
     async (item: FeedItem) => {
+      if (!navigator.onLine) {
+        setSummaryErrors((prev) => ({ ...prev, [item.id]: 'Connect to generate a new summary. Cached summaries remain available offline.' }))
+        return
+      }
       setSummaryLoadingIds((prev) => ({ ...prev, [item.id]: true }))
       setSummaryErrors((prev) => {
         if (!(item.id in prev)) return prev
@@ -822,6 +883,13 @@ export default function App() {
 
   const handleClearAllData = () => {
     clearReaderStorage()
+    realItemsRef.current = []
+    setItems([])
+    setLastRefresh(null)
+    setSelectedId(null)
+    setSelectedFeed('all')
+    setFeedHealth({})
+    setPulse({ hn: [], github: [], fetchedAt: '', cached: false, errors: {} })
     setFeeds(DEFAULT_FEEDS)
     setReadIds([])
     setSavedIds([])
@@ -852,6 +920,9 @@ export default function App() {
       <TooltipProvider delayDuration={250}>
         <div className="flex h-full flex-col bg-white text-zinc-950">
           <TopBar
+            offline={offline}
+            updateAvailable={updateState === 'available' || updateState === 'error'}
+            onUpdate={() => void handleUpdate()}
             activeView={activeView}
             onViewChange={navigateTo}
             total={items.length}
@@ -874,6 +945,22 @@ export default function App() {
             onExportJson={() => void handleExportJson()}
             onRestoreDefaults={restoreDefaults}
           />
+          <div aria-live="polite" className="sr-only">{offline ? 'Offline. Showing last fetched items.' : 'Online.'}</div>
+          {updateState !== 'idle' && !updateDismissed && (
+            <aside ref={updateNoticeRef} popover="manual" aria-label="Reader updates" className="fixed inset-auto right-3 bottom-3 left-3 z-50 m-0 flex w-auto flex-wrap items-center gap-3 rounded-lg border border-zinc-200 bg-white p-4 text-sm shadow-lg sm:left-auto sm:max-w-sm">
+              <p role="status" className="flex-1">{updateState === 'error' ? updateError || 'Offline setup unavailable. Try reloading online.' : updateState === 'reloading' ? 'Preparing update…' : 'Update available. Reload when you’re ready.'}</p>
+              <button type="button" disabled={updateState === 'reloading'} onClick={() => void handleUpdate()} className="rounded-md bg-zinc-950 px-3 py-2 text-white disabled:opacity-50">Reload</button>
+              <button type="button" aria-label="Dismiss update notice" onClick={() => {
+                setUpdateDismissed(true)
+                document.querySelector<HTMLButtonElement>('button[aria-label="Reader options and sort"]')?.focus()
+              }} className="rounded-md px-2 py-2 text-zinc-600">Later</button>
+            </aside>
+          )}
+          {offline && (
+            <p className="border-b border-zinc-200 bg-zinc-50 px-4 py-1.5 text-xs text-zinc-600">
+              {lastRefresh ? `Last fetched ${new Date(lastRefresh).toLocaleString()} · ${items.length} cached items. Briefing and cached summaries remain available.` : 'No fetched items cached yet. Connect and refresh to save your briefing for offline reading.'}
+            </p>
+          )}
           {usingSample && (
             <p className="border-b border-zinc-200 bg-amber-50/80 px-4 py-1.5 text-xs text-amber-900">
               Showing sample data — live feeds are unreachable right now. Check

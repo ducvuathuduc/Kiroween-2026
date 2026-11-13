@@ -46,6 +46,9 @@ export type SortBy = 'score' | 'date'
 export type AppView = NavigableRoute
 
 interface TopBarProps {
+  offline: boolean
+  updateAvailable: boolean
+  onUpdate: () => void
   activeView: AppRoute
   onViewChange: (view: NavigableRoute) => void
   total: number
@@ -77,6 +80,9 @@ const NAV_TABS = [
 ] as const
 
 export default function TopBar({
+  offline,
+  updateAvailable,
+  onUpdate,
   activeView,
   onViewChange,
   total,
@@ -162,7 +168,7 @@ export default function TopBar({
         </nav>
 
         <Separator orientation="vertical" className="hidden h-4 xl:block" />
-        <div className="hidden items-center gap-3 font-mono text-xs tabular-nums text-zinc-500 xl:flex">
+        <div className={`hidden shrink-0 items-center gap-3 whitespace-nowrap font-mono text-xs tabular-nums text-zinc-500 ${offline || updateAvailable ? '2xl:flex' : 'xl:flex'}`}>
           <span>
             <strong className="font-medium text-zinc-950">{total}</strong> items
           </span>
@@ -182,6 +188,8 @@ export default function TopBar({
       </div>
 
       <div className="ml-auto flex items-center gap-1 sm:gap-1.5">
+        {offline && <span className="rounded border border-zinc-300 bg-zinc-100 px-1 py-1 font-mono text-[10px] font-semibold text-zinc-800">OFFLINE</span>}
+        {updateAvailable && <Button type="button" variant="outline" size="sm" onClick={onUpdate} className="hidden h-8 px-2 text-xs sm:inline-flex">Update</Button>}
         <div className="relative hidden w-40 sm:block md:w-48">
           <label htmlFor="search-items" className="visually-hidden">
             Search titles and summaries
@@ -359,6 +367,7 @@ export default function TopBar({
               </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
+            {updateAvailable && <DropdownMenuItem onSelect={onUpdate}>Reload Reader update</DropdownMenuItem>}
             <DropdownMenuItem onSelect={onOpenCommandPalette}>
               <Command className="size-3.5" />
               Command palette
@@ -389,6 +398,12 @@ export default function TopBar({
               <RotateCcw className="size-3.5" />
               Restore default feeds
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <div className="px-2 py-1.5 text-xs text-zinc-500">
+              <p className="font-medium text-zinc-700">Install Reader</p>
+              <p className="mt-1">iPhone/iPad: in Safari, Share → Add to Home Screen. Other browsers: use the browser’s Install app menu when available.</p>
+              <p className="mt-1">Open online once to save the shell and fetched items for offline reading.</p>
+            </div>
             <DropdownMenuSeparator />
             <DropdownMenuLabel className="text-xs text-zinc-500">
               Pages &amp; Settings
