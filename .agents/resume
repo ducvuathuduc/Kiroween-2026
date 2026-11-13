@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
+# Snapshots retain the toolchain and dependencies. Never install on wake.
+command -v node >/dev/null
+command -v npm >/dev/null
+for tool in tsx tsc vite; do
+  if [[ ! -x "node_modules/.bin/$tool" ]]; then
+    echo "Missing $tool; run .agents/setup to repair this orb." >&2
+    exit 1
+  fi
+done
+echo "Orb dependencies ready"

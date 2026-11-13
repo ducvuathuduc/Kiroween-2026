@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
+echo "Checking the orb's preinstalled Node.js and npm"
+node --input-type=module -e '
+  const [major, minor] = process.versions.node.split(".").map(Number)
+  if (major < 22 || (major === 22 && minor < 12)) {
+    console.error("Orb setup requires Node.js >=22.12 (Vite 8 and server TypeScript support).")
+    process.exit(1)
+  }
+'
+node --version
+npm --version
+
+echo "Installing locked npm dependencies (including development tools)"
+SECONDS=0
+# Unlike npm ci, install preserves dependencies restored from a stale snapshot.
+# --no-save reads the lockfile without rewriting package.json or package-lock.json.
+npm install --include=dev --prefer-offline --no-audit --no-fund --no-save
+echo "Dependencies ready in ${SECONDS}s"
+
+# No credentials or .env files are needed for the default development server.
+# Long-lived services must be started through the orb service supervisor, not here.
+echo "Orb setup complete"

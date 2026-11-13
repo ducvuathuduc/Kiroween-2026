@@ -35,6 +35,7 @@ pnpm-debug.log*
 # Misc
 coverage/
 *.tsbuildinfo
+.amp/portals/*
 
 # NOTE: .kiro/ is intentionally NOT ignored — Kiro specs, steering and
 # hooks must be committed (Kiroween rules require /.kiro at the repo root).

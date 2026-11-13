@@ -17,6 +17,25 @@ npx tsc --noEmit # typecheck only
 npm run lint     # oxlint
 ```
 
+### Amp orbs
+
+`.agents/setup` uses the orb's preinstalled Node.js (>=22.12) and npm to install
+dependencies from `package-lock.json`, including development tools. It preserves
+restored `node_modules` and uses npm's cache instead of reinstalling everything on
+a warm setup. No database, API key, or environment file is required for the default
+development server; AI features use optional server-side credentials supplied at
+runtime, never stored by setup.
+
+Amp snapshots successful setup for fresh orbs; exact snapshot matches skip setup.
+`.agents/resume` only checks that the tools are available, without reinstalling
+dependencies on wake. To repair missing dependencies, run `.agents/setup`.
+The lifecycle scripts must reach the project's default branch before future orbs
+can use them.
+
+Start the development server with the orb supervisor, not from a lifecycle script:
+`amp orb service start reader --command 'npm run dev' --portal`.
+Run tests with `node --import tsx --test tests/*.test.ts`.
+
 ## Stack
 
 | Layer | Choice | Why |
