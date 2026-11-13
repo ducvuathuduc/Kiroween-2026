@@ -85,7 +85,7 @@ export default function PrivacyPolicyPage({
             <li>
               <strong>Primary:</strong> Same-origin Hono Worker proxy{' '}
               <code className="font-mono text-zinc-900">GET /api/rss?url=...</code>{' '}
-              (checks public HTTP(S) hosts and redirects, truncates XML, and uses a 5-minute in-memory cache).
+              (checks public HTTP(S) hosts and redirects, limits RSS downloads to 2 MiB, and uses a 5-minute in-memory cache).
             </li>
             <li>
               <strong>Client fallbacks:</strong> If the local server route is

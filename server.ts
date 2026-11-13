@@ -221,7 +221,15 @@ app.get('/api/rss', async (c) => {
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
       })
     }
-    const xml = (await upstream.text()).slice(0, MAX_RSS_BYTES)
+    let bytes = 0
+    const limitedBody = upstream.body?.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        bytes += chunk.byteLength
+        if (bytes > MAX_RSS_BYTES) throw new Error('RSS response exceeds the 2 MiB limit.')
+        controller.enqueue(chunk)
+      },
+    }))
+    const xml = await new Response(limitedBody).text()
     const contentType = 'application/xml; charset=utf-8'
     if (rssCache.size >= 100) {
       const firstKey = rssCache.keys().next().value

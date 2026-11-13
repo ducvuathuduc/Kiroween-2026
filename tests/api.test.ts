@@ -82,6 +82,21 @@ test('Hono preserves the existing API contracts', async (t) => {
     assert.match(await redirected.text(), /<rss\b/)
   })
 
+  await t.test('RSS accepts exactly 2 MiB but rejects a larger upstream body', async () => {
+    // Real transport probes, not feed items or fabricated article data.
+    for (const bytes of [2097152, 2097153]) {
+      const url = `https://speed.cloudflare.com/__down?bytes=${bytes}`
+      const response = await request('/api/rss?url=' + encodeURIComponent(url))
+      if (bytes === 2097152) {
+        assert.equal(response.status, 200)
+        assert.equal((await response.arrayBuffer()).byteLength, bytes)
+      } else {
+        assert.equal(response.status, 502)
+        assert.deepEqual(await response.json(), { error: 'RSS response exceeds the 2 MiB limit.' })
+      }
+    }
+  })
+
   await t.test('summarize and embeddings retain validation and no-provider behavior', async () => {
     const invalid = await post('/api/summarize', {})
     assert.equal(invalid.status, 400)

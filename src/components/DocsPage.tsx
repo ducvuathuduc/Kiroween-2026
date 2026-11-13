@@ -148,7 +148,7 @@ export default function DocsPage({
               <li>
                 <strong>Primary bridge:</strong> Same-origin Hono Worker route{' '}
                 <code className="font-mono">GET /api/rss?url=...</code> with
-                public-host and redirect validation, XML truncation, and a 5-minute TTL
+                public-host and redirect validation, a 2 MiB streaming limit, and a 5-minute TTL
                 cache.
               </li>
               <li>

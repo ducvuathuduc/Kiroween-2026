@@ -46,7 +46,7 @@ Each dimension is normalized to 0–100. The final score is the rounded, clamped
 
 Feeds, read/saved state, preferences and cached summaries stay in browser `localStorage`; server feed/image/item caches are temporary and isolate-local, not a remote account database. Public feed URLs and normal network metadata reach the proxy/feed services. AI summary inputs and embedding queries/documents reach configured providers and may incur charges. Credentials remain server-side; no keys belong in `VITE_*` variables or exported browser data.
 
-The URL guard rejects local names, private/reserved IPv4 literals, all IPv6 literals, credentials, and unsafe redirects, with bounded redirect hops. It does not resolve DNS or prevent rebinding; production network policy must supply that boundary. RSS XML is truncated after fetching, not enforced as a streaming download-byte limit. Public paid-provider endpoints also need an operator review of access controls, rate limits and budgets before exposure.
+The URL guard rejects local names, private/reserved IPv4 literals, all IPv6 literals, credentials, and unsafe redirects, with bounded redirect hops. It does not resolve DNS or prevent rebinding; production network policy must supply that boundary. RSS response-body consumption is limited to 2 MiB with a byte-counted stream; exceeding the limit cancels consumption and returns HTTP 502 without caching truncated XML. This does not cap network transport buffers or third-party fallback responses. Public paid-provider endpoints also need an operator review of access controls, rate limits and budgets before exposure.
 
 ## 4. How it is built (agentic workflow)
 

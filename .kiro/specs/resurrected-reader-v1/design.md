@@ -68,3 +68,7 @@ Update the existing repository documentation and help-page copy in place, retain
 ## Continuous verification
 
 `.github/workflows/verify.yml` runs on main pushes and pull requests, on Ubuntu with Node 26 to match the verified orb toolchain. Install with `npm ci` and npm download caching, then run both TypeScript checks, `tests/*.test.ts`, lint, and the full build. Pin checkout/setup-node actions to reviewed upstream commit IDs and limit the job token to contents-read. No deployment command, deployment credential, AI secret, package publication, or manual-dispatch trigger belongs in this workflow. Real-feed tests need public network access and must fail honestly when their contract is not met.
+
+## RSS response byte limit
+
+Pipe the upstream body through a native TransformStream that counts chunk byte lengths before forwarding them to Response's UTF-8 decoder. Crossing 2 MiB errors the stream and cancels its source; no partial result enters the five-minute cache. Keep the existing HTTP 502 upstream-error contract, timeout, URL guard, and normal XML response. Verify both sides of the exact boundary with Cloudflare's real public byte-download endpoint, alongside the existing live AWS XML/cache test. This limits consumed response-body bytes, not transport buffers or unrelated fallback services.
