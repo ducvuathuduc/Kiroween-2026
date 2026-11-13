@@ -123,9 +123,18 @@ export function explainScore(
 
   // 3. Authority (0-100, weight 18%): source origin + technical specification depth
   const feedId = context.feedId ?? ''
-  const link = context.link ?? ''
-  const isAwsOfficial =
-    feedId.startsWith('aws') || /aws\.amazon\.com/i.test(link)
+  const link = context.link?.trim() ?? ''
+  let isAwsOfficial = feedId === 'aws-news' || feedId === 'aws-ml'
+  if (link) {
+    try {
+      const url = new URL(link)
+      const host = url.hostname.toLowerCase().replace(/\.$/, '')
+      isAwsOfficial = (url.protocol === 'https:' || url.protocol === 'http:') &&
+        (host === 'aws.amazon.com' || host.endsWith('.aws.amazon.com'))
+    } catch {
+      isAwsOfficial = false
+    }
+  }
   let authority = isAwsOfficial ? 72 : 44
   if (isAwsOfficial) {
     reasons.push({ label: 'Official AWS engineering source', dimension: 'authority', points: 72 })

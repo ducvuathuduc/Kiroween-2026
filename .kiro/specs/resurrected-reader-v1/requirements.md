@@ -53,3 +53,4 @@
 ## Judging-readiness hardening
 
 - [x] RSS and OpenGraph proxies reject localhost names, private/reserved IPv4 literals, credentials, and IPv6 literals (including mapped loopback). Validate every redirect before fetching, limit redirect hops, and keep public-domain feeds and images working. This hostname/literal guard does not claim DNS-rebinding protection.
+- [x] Official-AWS authority recognizes only HTTP(S) links on `aws.amazon.com` or its subdomains, not text in a path, query, username, or lookalike hostname. Without an article link, only the two known default AWS feed IDs receive the source bonus; an explicit non-AWS/invalid link never inherits it from a feed ID. Weights and valid default-feed scores stay unchanged.

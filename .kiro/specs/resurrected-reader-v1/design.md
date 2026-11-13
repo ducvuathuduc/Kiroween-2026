@@ -56,3 +56,7 @@ Static Assets serves the unchanged React application with SPA navigation fallbac
 ## Public proxy boundaries
 
 Both RSS and OpenGraph use the same canonical URL check and manual redirect loop (at most five redirects under the existing total request timeout). Reject localhost aliases, local/internal names, credentials, private/reserved IPv4 literals, and all IPv6 literals; domain-based public IPv6 services still work through their hostnames. Revalidate each redirect target before making another request and cancel discarded response bodies. Invalid initial RSS URLs remain HTTP 400; blocked redirects fail as HTTP 502, while OpenGraph keeps its null-image failure contract. DNS resolution/rebinding protection is not provided by this literal/hostname check and must also be enforced by the deployment network.
+
+## Source authority boundaries
+
+`explainScore` parses an article link with the native URL API and checks its HTTP(S) hostname, allowing `aws.amazon.com` and dot-delimited subdomains (case-insensitive, with an optional DNS trailing dot). If no link exists, `aws-news` and `aws-ml` remain recognized catalog sources. A supplied link takes precedence over that fallback, and arbitrary `aws*` IDs or URL substrings confer no authority bonus. Relevance, recency, novelty, weights, and the 70-point high-signal threshold are unchanged.
