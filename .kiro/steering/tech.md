@@ -6,8 +6,9 @@ inclusion: always
 
 ## Stack
 - React + Vite + TypeScript (AI Studio Build default), Tailwind CSS.
-- No backend in v1. No API keys required.
-- RSS fetched client-side via `api.rss2json.com` (CORS-enabled JSON, primary) with `api.allorigins.win/raw?url=` and direct CORS `fetch` + `DOMParser` fallbacks.
+- Hono `server.ts` runs on Cloudflare Workers + Static Assets, with server-only AI SDK provider credentials optional for AI features. No database or keys are required for RSS and deterministic scoring.
+- RSS uses the same-origin `/api/rss` proxy, with rss2json and allorigins fallbacks. MCP `/mcp` uses the default feed catalog and the same parsers/scoring; it never returns offline sample items.
+- `npm run dev` uses Vite with the Cloudflare plugin; `npm run build` builds Worker + client assets; `npm run start` runs the built app locally through Wrangler. Deployment requires explicit owner approval.
 - State persisted in localStorage (feeds, read/saved).
 
 ## Verified live feeds

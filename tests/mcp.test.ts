@@ -4,10 +4,12 @@ import worker from '../server/mcp.ts'
 import type { FeedItem } from '../src/lib/feeds.ts'
 
 async function request(method: string, params: object) {
-  const response = await worker.fetch(new Request('http://localhost/mcp', {
+  const target = new URL('/mcp', process.env.READER_TEST_URL ?? 'http://localhost')
+  const send = process.env.READER_TEST_URL ? fetch : worker.fetch
+  const response = await send(new Request(target, {
     method: 'POST',
     headers: {
-      host: 'localhost',
+      host: target.host,
       'content-type': 'application/json',
       accept: 'application/json, text/event-stream',
       'mcp-protocol-version': '2025-11-25',
@@ -67,6 +69,9 @@ test('all eight MCP tools serve real live data or honest no-provider results', a
     if (saved[index] === undefined) delete process.env[key]
     else process.env[key] = saved[index]
   }))
+
+  const runtime = data<{ providers: { available: boolean }[] }>(await call('get_providers'))
+  assert.ok(runtime.providers.every((entry) => !entry.available), 'Run smoke tests without runtime AI credentials to avoid charges.')
 
   await t.test('list_feeds', async () => {
     const catalog = data<{ feeds: { id: string; url: string }[] }>(await call('list_feeds'))

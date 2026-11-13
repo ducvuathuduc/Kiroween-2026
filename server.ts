@@ -1,5 +1,5 @@
-import path from 'node:path'
-import express, { type Request, type Response } from 'express'
+import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import {
   getProvidersStatus,
   NoProvidersConfiguredError,
@@ -8,9 +8,6 @@ import {
 } from './server/ai.ts'
 import { sanitizeProviderId } from './src/lib/providers.ts'
 import { mcpHandler } from './server/mcp.ts'
-
-const PORT = Number(process.env.PORT) || 3000
-const IS_PROD = process.env.NODE_ENV === 'production'
 
 interface SummarizeRequestBody {
   title?: unknown
@@ -128,26 +125,36 @@ async function resolveOgImage(rawUrl: string): Promise<string | null> {
   return found
 }
 
-const app = express()
-app.use(express.json({ limit: '192kb' }))
+const app = new Hono<{
+  Bindings: { ASSETS?: { fetch(request: Request): Promise<Response> } }
+  Variables: { body: unknown }
+}>()
 
-app.all('/mcp', async (req: Request, res: Response) => {
-  const headers = new Headers()
-  for (let index = 0; index < req.rawHeaders.length; index += 2) {
-    headers.append(req.rawHeaders[index], req.rawHeaders[index + 1])
+const limitJsonBody = bodyLimit({ maxSize: 192 * 1024 })
+app.use('*', async (c, next) => {
+  if (!/^application\/json(?:;|$)/i.test(c.req.header('content-type') ?? '')) {
+    c.set('body', {})
+    return next()
   }
-  const response = await mcpHandler.fetch(new globalThis.Request(`${req.protocol}://${req.get('host')}${req.originalUrl}`, {
-    method: req.method,
-    headers,
-    body: req.method === 'POST' ? JSON.stringify(req.body) : undefined,
-  }))
-  response.headers.forEach((value, name) => res.setHeader(name, value))
-  res.status(response.status).send(Buffer.from(await response.arrayBuffer()))
+  return limitJsonBody(c, async () => {
+    const text = await c.req.text()
+    try {
+      const body: unknown = text.trim() ? JSON.parse(text) : {}
+      if (!body || typeof body !== 'object') throw new SyntaxError('Expected a JSON object or array.')
+      c.set('body', body)
+    } catch {
+      c.res = c.json({ error: 'Invalid JSON body.' }, 400)
+      return
+    }
+    await next()
+  })
 })
 
-app.get('/api/health', (_req: Request, res: Response) => {
+app.all('/mcp', (c) => mcpHandler.fetch(c.req.raw, { parsedBody: c.get('body') }))
+
+app.get('/api/health', (c) => {
   const providers = getProvidersStatus()
-  res.json({
+  return c.json({
     ok: true,
     geminiConfigured: Boolean(
       providers.find((p) => p.id === 'gemini')?.available,
@@ -156,25 +163,24 @@ app.get('/api/health', (_req: Request, res: Response) => {
   })
 })
 
-app.get('/api/providers', (_req: Request, res: Response) => {
-  res.json({
+app.get('/api/providers', (c) => {
+  return c.json({
     defaultProvider: 'gemini',
     providers: getProvidersStatus(),
   })
 })
 
-app.get('/api/rss', async (req: Request, res: Response) => {
-  const rawUrl = typeof req.query.url === 'string' ? req.query.url : ''
+app.get('/api/rss', async (c) => {
+  const urls = c.req.queries('url') ?? []
+  const rawUrl = urls.length === 1 ? urls[0] : ''
   const safeUrl = isPublicHttpUrl(rawUrl)
   if (!safeUrl) {
-    res.status(400).json({ error: 'A valid public http(s) feed URL is required.' })
-    return
+    return c.json({ error: 'A valid public http(s) feed URL is required.' }, 400)
   }
 
   const cached = rssCache.get(safeUrl)
   if (cached && cached.expiresAt > Date.now()) {
-    res.type(cached.contentType).send(cached.xml)
-    return
+    return c.body(cached.xml, 200, { 'Content-Type': cached.contentType })
   }
 
   try {
@@ -188,8 +194,10 @@ app.get('/api/rss', async (req: Request, res: Response) => {
       },
     })
     if (!upstream.ok) {
-      res.status(upstream.status).json({ error: `Upstream HTTP ${upstream.status}` })
-      return
+      return new Response(JSON.stringify({ error: `Upstream HTTP ${upstream.status}` }), {
+        status: upstream.status,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      })
     }
     const xml = (await upstream.text()).slice(0, MAX_RSS_BYTES)
     const contentType = 'application/xml; charset=utf-8'
@@ -198,16 +206,16 @@ app.get('/api/rss', async (req: Request, res: Response) => {
       if (firstKey) rssCache.delete(firstKey)
     }
     rssCache.set(safeUrl, { xml, contentType, expiresAt: Date.now() + RSS_CACHE_TTL_MS })
-    res.type(contentType).send(xml)
+    return c.body(xml, 200, { 'Content-Type': contentType })
   } catch (err) {
-    res.status(502).json({
+    return c.json({
       error: err instanceof Error ? err.message : 'Failed to fetch RSS feed.',
-    })
+    }, 502)
   }
 })
 
-app.post('/api/og-images', async (req: Request, res: Response) => {
-  const body = (req.body ?? {}) as OgImagesRequestBody
+app.post('/api/og-images', async (c) => {
+  const body = (c.get('body') ?? {}) as OgImagesRequestBody
   const rawUrls = Array.isArray(body.urls)
     ? body.urls.filter((u): u is string => typeof u === 'string').slice(0, 12)
     : []
@@ -215,11 +223,11 @@ app.post('/api/og-images', async (req: Request, res: Response) => {
   const entries = await Promise.all(
     rawUrls.map(async (u) => [u, await resolveOgImage(u)] as const),
   )
-  res.json({ images: Object.fromEntries(entries) })
+  return c.json({ images: Object.fromEntries(entries) })
 })
 
-app.post('/api/summarize', async (req: Request, res: Response) => {
-  const body = (req.body ?? {}) as SummarizeRequestBody
+app.post('/api/summarize', async (c) => {
+  const body = (c.get('body') ?? {}) as SummarizeRequestBody
   const title = typeof body.title === 'string' ? body.title.trim() : ''
   const feedTitle =
     typeof body.feedTitle === 'string' ? body.feedTitle.trim() : ''
@@ -229,8 +237,7 @@ app.post('/api/summarize', async (req: Request, res: Response) => {
   const preferredProvider = sanitizeProviderId(body.provider)
 
   if (!title || !content) {
-    res.status(400).json({ error: 'Article title and content are required.' })
-    return
+    return c.json({ error: 'Article title and content are required.' }, 400)
   }
 
   try {
@@ -241,11 +248,10 @@ app.post('/api/summarize', async (req: Request, res: Response) => {
       content,
       preferredProvider,
     })
-    res.json(result)
+    return c.json(result)
   } catch (err) {
     if (err instanceof NoProvidersConfiguredError) {
-      res.status(503).json({ error: err.message })
-      return
+      return c.json({ error: err.message }, 503)
     }
     const raw =
       err instanceof Error ? err.message : 'Failed to summarize article.'
@@ -263,12 +269,12 @@ app.post('/api/summarize', async (req: Request, res: Response) => {
       }
     }
     const status = /429|RESOURCE_EXHAUSTED|quota/i.test(raw) ? 429 : 502
-    res.status(status).json({ error: friendly })
+    return c.json({ error: friendly }, status)
   }
 })
 
-app.post('/api/embed', async (req: Request, res: Response) => {
-  const body = (req.body ?? {}) as EmbedRequestBody
+app.post('/api/embed', async (c) => {
+  const body = (c.get('body') ?? {}) as EmbedRequestBody
   const query = typeof body.query === 'string' ? body.query.trim() : ''
   const preferredProvider = sanitizeProviderId(body.provider)
   const rawDocs = Array.isArray(body.documents) ? body.documents : []
@@ -283,8 +289,7 @@ app.post('/api/embed', async (req: Request, res: Response) => {
     .slice(0, 60)
 
   if (!query || documents.length === 0) {
-    res.json({ available: false, provider: null, scores: {} })
-    return
+    return c.json({ available: false, provider: null, scores: {} })
   }
 
   const result = await semanticScoreWithFallback({
@@ -292,28 +297,9 @@ app.post('/api/embed', async (req: Request, res: Response) => {
     documents,
     preferredProvider,
   })
-  res.json(result)
+  return c.json(result)
 })
 
-async function startServer() {
-  if (IS_PROD) {
-    const distDir = path.resolve(process.cwd(), 'dist')
-    app.use(express.static(distDir))
-    app.get('/{*splat}', (_req: Request, res: Response) => {
-      res.sendFile(path.join(distDir, 'index.html'))
-    })
-  } else {
-    const { createServer: createViteServer } = await import('vite')
-    const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
-      appType: 'spa',
-    })
-    app.use(vite.middlewares)
-  }
+app.all('*', (c) => c.env?.ASSETS ? c.env.ASSETS.fetch(c.req.raw) : c.notFound())
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Resurrected Reader listening on http://0.0.0.0:${PORT}`)
-  })
-}
-
-void startServer()
+export default app

@@ -43,3 +43,9 @@
 - [x] Exactly eight Zod-validated tools expose the default live feed catalog: `list_feeds`, `search_items`, `get_item`, `summarize_item`, `semantic_search`, `get_providers`, `daily_briefing`, and `export_kiro_task`. Browser-local subscriptions and read/saved state are not shared with MCP.
 - [x] MCP reuses feed parsing, deterministic scoring, provider fallback, briefing selection, and Kiro spec generation. Failed feeds and missing AI credentials are reported honestly; MCP never substitutes sample items or invented summaries.
 - [x] Tool registration, invalid inputs, and one real-data smoke call per tool are verified before shipping. Provider-backed success requires runtime credentials; the no-provider error/fallback remains testable without secrets.
+
+## Workers runtime
+
+- [x] Hono `4.13.18` replaces Express without changing the frontend or existing `/api/health`, `/api/providers`, `/api/rss`, `/api/og-images`, `/api/summarize`, and `/api/embed` JSON contracts, status codes, caches, or RSS URL guard.
+- [x] Workers + Static Assets (not Pages) uses `@cloudflare/vite-plugin@1.69.1` and `wrangler@4.161.0`; SPA routes load through the asset binding, and `/api/*` plus `/mcp` always reach the Worker first.
+- [x] Local Wrangler smoke tests cover `/mcp` and every API route, including validation errors, missing credentials, real RSS XML, and private-address rejection. No deployment or secret publication occurs during verification.

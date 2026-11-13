@@ -11,7 +11,7 @@ Reading is not the job. The radar reads everything, scores every item 0–100 fo
 ```sh
 npm install
 npm run dev      # local dev server
-npm run build    # typecheck + production build → dist/
+npm run build    # typecheck + Worker/client build → dist/worker + dist/client
 npm run preview  # serve the production build
 npx tsc --noEmit # typecheck only
 npm run lint     # oxlint
@@ -50,15 +50,14 @@ AI calls require server credentials and may incur provider charges. Without
 credentials, summaries return an explicit error and semantic search uses keyword
 matching. The test suite smoke-tests all tools with real public RSS data and
 disables AI credentials in its own process to avoid charges, so it needs network
-access but no secrets. Cloudflare runtime configuration follows separately; no
-deployment is performed by these commands.
+access but no secrets. No deployment is performed by these commands.
 
 ## Stack
 
 | Layer | Choice | Why |
 | --- | --- | --- |
 | Frontend | React 19 + Vite 8 + TypeScript 7 (strict) | Exactly what Google AI Studio Build generates |
-| Server Route | Express (`server.ts`) + `@google/genai` (`gemini-4-hydrogen`) | Server-side `/api/summarize` TL;DR with `GEMINI_API_KEY` secret |
+| Server Runtime | Hono `4.13.18` on Cloudflare Workers + Static Assets | Existing API routes and stateless `/mcp`; AI SDK multi-provider fallback, server-only secrets |
 | Styling & UI | Tailwind CSS v4 + `shadcn/ui` + `lucide-react` | Monochrome Vercel Geist theme tokens in `src/index.css`, Radix primitives in `src/components/ui/` |
 | Typography | `@fontsource-variable/geist` + `@fontsource-variable/geist-mono` | Self-hosted Geist Sans and Geist Mono variable fonts |
 | Navigation & Motion | `@ui-sdk/react` (`Listbox`) + `motion` | Roving focus + arrow-key list navigation (`definePrimitive`), 160ms pane/modal transitions |
@@ -92,7 +91,23 @@ deployment is performed by these commands.
 
 ## Deployment
 
-Static site — `npm run build`, serve `dist/` anywhere (Vercel / Netlify / GitHub Pages / Cloudflare Pages).
+The target is **Cloudflare Workers + Static Assets**, not Cloudflare Pages or a
+static-only host: API routes and `/mcp` require the Worker. `npm run build` creates
+`dist/worker/wrangler.json` and `dist/client/`. `npm run start` runs that built
+configuration locally through Wrangler; `npm run dev` uses Vite/workerd.
+
+`wrangler.jsonc` enables Node compatibility for the existing provider SDKs and
+routes `/api/*` plus `/mcp` through the Worker before SPA assets. Configure optional
+provider secrets in the runtime, never in client-side `VITE_*` variables. For local
+development, use environment variables or a gitignored `.dev.vars` file following
+`.env.example`. No credentials are needed for feed reading or deterministic scores.
+
+**Deployment and publishing require the owner's explicit approval.** Build,
+preview, and start commands are local only; no deploy script is provided.
+
+For a repeatable local Wrangler smoke test, set `READER_TEST_URL` to the running
+local server's origin and run `npx tsx --test tests/api.test.ts tests/mcp.test.ts`.
+These tests refuse AI-capable calls if that runtime has credentials configured.
 
 ## License
 

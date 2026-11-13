@@ -7,7 +7,7 @@ Resurrected Reader — Google Reader reborn as an AI reading radar for AWS build
 
 ## Stack (do not change)
 - React 19 + Vite 8 + TypeScript 7 (strict) + Tailwind CSS v4. This is exactly what Google AI Studio Build generates. Do **not** introduce Vue, Svelte, Next.js, or another framework.
-- No backend in v1. No API keys. RSS via `https://api.allorigins.win/raw?url=` + `DOMParser`.
+- Hono in `server.ts` runs API routes and `/mcp` on Cloudflare Workers + Static Assets (not Pages). RSS/scoring need no keys; optional AI credentials stay server-side. Never deploy without the owner's approval.
 - npm. Commands: `npm run dev` / `npm run build` / `npm run preview` / `npx tsc --noEmit` / `npm run lint`.
 
 ## Where things live

@@ -19,7 +19,7 @@ No secrets, API keys, tokens, or personal data in the repo or browser bundle —
 
 ## Technology Stack
 - Web app: React 19 + Vite 8 + TypeScript 7 (strict), Tailwind CSS v4.
-- Server runtime: Express (`server.ts`, `"dev": "tsx server.ts"`, `"start": "node server.ts"`) hosting `/api/summarize` (`@google/genai` `gemini-4-hydrogen`) + Vite dev middleware. Optional future sync: Firebase Auth + Firestore.
+- Server runtime: Hono (`server.ts`) on Cloudflare Workers + Static Assets, with the Cloudflare Vite plugin for local development and builds. Existing API contracts and the stateless `/mcp` endpoint reuse server-only AI SDK provider fallback. `npm run start` runs the built Worker locally; deployment requires explicit owner approval. Optional future sync: Firebase Auth + Firestore.
 - Package manager: npm. Commands: `npm run dev`, `npm run build`, `npm run start`, `npm run preview`, `npx tsc --noEmit`, `npm run lint`.
 
 ## Development Workflow
@@ -37,4 +37,4 @@ No secrets, API keys, tokens, or personal data in the repo or browser bundle —
 ## Governance
 This constitution supersedes all other practices in the repo. Amendments require a documented reason and an update to this file. Complexity must be justified. When this constitution conflicts with an agent's default habits, the constitution wins.
 
-**Version**: 1.1.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13 (Added server-side `/api/summarize`, Community Pulse, OPML, Web Share, Notifications, and `.zip` Kiro spec bundle export)
+**Version**: 1.2.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13 (Owner-requested Express-to-Hono migration for Cloudflare Workers compatibility; preserve API contracts and frontend design)

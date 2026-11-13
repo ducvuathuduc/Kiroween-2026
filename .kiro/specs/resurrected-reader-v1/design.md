@@ -1,7 +1,7 @@
 # Spec: Resurrected Reader v1 — Design
 
 ## Architecture
-React 19 + Vite 8 + TypeScript + Tailwind v4 app paired with a lightweight Express server (`server.ts` + `server/ai.ts`) for server-side RSS proxying (`/api/rss`), Vercel AI SDK v7 multi-provider summarization (`/api/summarize` with `generateObject`/`generateText` over `Gemini → OpenAI → Anthropic → Bedrock` + `@google/genai` direct path), provider discovery (`/api/providers`), semantic search embeddings (`/api/embed`), and SSRF-guarded OpenGraph image enrichment (`/api/og-images`).
+React 19 + Vite 8 + TypeScript + Tailwind v4 app paired with a Hono Cloudflare Worker (`server.ts` + `server/ai.ts`) for server-side RSS proxying (`/api/rss`), Vercel AI SDK v7 multi-provider summarization (`/api/summarize` with `generateObject`/`generateText` over `Gemini → OpenAI → Anthropic → Bedrock` + `@google/genai` direct path), provider discovery (`/api/providers`), semantic search embeddings (`/api/embed`), and SSRF-guarded OpenGraph image enrichment (`/api/og-images`).
 
 ```
 fetch RSS/Pulse → extract media + normalize → 4D deterministic score → Reader / Briefing / Signal Radar / Kiro Task
@@ -46,3 +46,9 @@ Google Reader 3-pane layout reborn in the Vercel Geist light aesthetic (`#FFFFFF
 `server/mcp.ts` creates a fresh SDK v2 `McpServer` per request through `agents/mcp/server` at `/mcp`, using stateless Streamable HTTP (JSON for modern requests, SSE for legacy-compatible requests). Its Worker-compatible fetch export is also mounted by the local server. All eight tools validate inputs with Zod and return text-encoded JSON; tool failures set `isError` rather than masquerading as successful data.
 
 `server/items.ts` loads the existing `DEFAULT_FEEDS` through rss2json, reuses `parseRss2Json` (no browser DOM dependency), and applies `explainScore`. A five-minute, isolate-local cache reduces upstream traffic without implying durable storage. Partial upstream failures are included in results; total failure raises an error. Item IDs come from the existing parser. The default catalog is public and separate from browser-local state. `daily_briefing` selects the existing top five without automatically generating paid summaries; `semantic_search` uses existing embeddings with an explicit keyword fallback. Summaries require a configured provider and never fabricate an offline AI result.
+
+## Workers hosting
+
+`server.ts` exports a Hono app with Web Request/Response handlers, a 192 KiB JSON body limit, and the existing API status/payload contracts. The Cloudflare Vite plugin runs this entry in local workerd and builds separate Worker and client outputs. `wrangler.jsonc` enables `nodejs_compat` for the existing AI SDK adapters and request-local MCP context. Runtime secrets populate server-side `process.env`; no secret is embedded in Vite's client configuration.
+
+Static Assets serves the unchanged React application with SPA navigation fallback. Worker-first routing covers `/api/*` and `/mcp`, so an unknown or non-GET protocol request cannot be swallowed by the SPA. `npm run dev` runs Vite/workerd; `npm run start` runs the built Worker locally through Wrangler. Neither command deploys.
