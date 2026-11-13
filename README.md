@@ -22,27 +22,30 @@ npm run lint     # oxlint
 | Layer | Choice | Why |
 | --- | --- | --- |
 | Frontend | React 19 + Vite 8 + TypeScript 7 (strict) | Exactly what Google AI Studio Build generates |
+| Server Route | Express (`server.ts`) + `@google/genai` (`gemini-4-hydrogen`) | Server-side `/api/summarize` TL;DR with `GEMINI_API_KEY` secret |
 | Styling & UI | Tailwind CSS v4 + `shadcn/ui` + `lucide-react` | Monochrome Vercel Geist theme tokens in `src/index.css`, Radix primitives in `src/components/ui/` |
 | Typography | `@fontsource-variable/geist` + `@fontsource-variable/geist-mono` | Self-hosted Geist Sans and Geist Mono variable fonts |
 | Navigation & Motion | `@ui-sdk/react` (`Listbox`) + `motion` | Roving focus + arrow-key list navigation (`definePrimitive`), 160ms pane/modal transitions |
-| Data | RSS/Atom via CORS proxy, parsed in-browser | No backend, no keys, no cost in v1 |
+| Data & Pulse | RSS/Atom CORS bridge + HN Firebase API + GitHub Search API | Live AWS/HN feeds + live builder pulse, zero external auth keys |
+| Export & Interop | Pure PKZIP `.zip` (`src/lib/zip.ts`), OPML 2.0, Web Share, Notifications | Native platform APIs for Reader-era OPML migration & Kiro spec export |
 | Security | Native `Sanitizer` API + `dompurify` fallback | Sanitizes untrusted RSS HTML before rendering excerpts |
 | Dates | `date-fns` | Clean relative timestamps and refresh clock formatting |
-| State | React + localStorage | Feeds, read/saved persist per browser |
-| Specs | Spec Kit + Kiro | `.specify/` and `.kiro/` at the repo root |
+| State | React + localStorage | Feeds, read/saved, pulse cache, and summaries persist per browser |
+| Specs & MCP | Spec Kit + Kiro + `awslabs.aws-documentation-mcp-server` | `.specify/` and `.kiro/` (including `.kiro/settings/mcp.json`) at the repo root |
 
 ## Live feeds (verified)
 
 - AWS News Blog — `aws.amazon.com/blogs/aws/feed/`
 - AWS Machine Learning Blog — `aws.amazon.com/blogs/machine-learning/feed/`
 - Hacker News — `hnrss.org/frontpage`
+- Community Pulse — Hacker News Firebase API (`topstories.json`) & GitHub Search API (`topic:aws`)
 
 ## How it works
 
-1. **Ingest** — feeds fetched through `api.allorigins.win`, parsed with `DOMParser`, and sanitized via native `setHTML()` / `dompurify` before rendering rich excerpts. A failing feed shows inline; the rest keep working.
+1. **Ingest & Pulse** — feeds fetched client-side via `api.rss2json.com` (CORS JSON, primary) with fallback to `api.allorigins.win` / direct CORS + `DOMParser`, plus live **Community Pulse** (HN Top Stories + GitHub `topic:aws` repos) and Google Reader **OPML import/export**.
 2. **Score** — deterministic 0–100: keywords (kiro +25, aws +15, agent/agentic +20, llm/ai coding +15, startup +10, security +10) + recency (today +15, this week +8). Never labeled "AI".
-3. **Triage** — sort by score or newest, filters All / High ≥70 / Unread / Saved, search (`/`), keyboard `↑`/`↓` (roving focus), `j`/`k`/`s`/`r`.
-4. **Act** — "→ Kiro task" opens `KiroTaskModal` (glass `Dialog`) to preview the generated Markdown spec (Goal + acceptance criteria) and copy it to the clipboard.
+3. **Triage & Summarize** — sort by score or newest, filters All / High ≥70 / Unread / Saved, search (`/`), keyboard `↑`/`↓` (roving focus), `j`/`k`/`s`/`r`, Web Share, opt-in notifications (`≥85`), and one-click server-side **Gemini TL;DR** summaries.
+4. **Act** — "→ Kiro task" opens `KiroTaskModal` (glass `Dialog`) to preview `tasks.md`, `requirements.md`, and `design.md`, copy Markdown, or download a ready-to-drop `<slug>-kiro-spec.zip` archive for `.kiro/specs/`.
 
 ## Development workflow
 

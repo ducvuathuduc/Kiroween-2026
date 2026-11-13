@@ -1,0 +1,8 @@
+{
+  "name": "Resurrected Reader",
+  "description": "Google Reader reborn as an AI reading radar for AWS builders. Deterministic signal scoring, Gemini TL;DR summaries, live builder pulse, OPML import/export, and downloadable Kiro spec bundles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

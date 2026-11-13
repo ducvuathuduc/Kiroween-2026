@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Copy } from 'lucide-react'
+import { Check, Copy, Download } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { FeedItem } from '../lib/feeds'
 import { scoreBadgeClass } from '../lib/format'
-import { buildKiroTask } from '../lib/kiroTask'
+import {
+  buildKiroSpecBundle,
+  buildKiroTask,
+  downloadKiroSpecZip,
+  type GeminiSummary,
+} from '../lib/kiroTask'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import {
@@ -15,6 +20,9 @@ import {
   DialogTitle,
 } from './ui/dialog'
 import { ScrollArea } from './ui/scroll-area'
+import { Tabs, TabsList, TabsTrigger } from './ui/tabs'
+
+type SpecFileTab = 'tasks' | 'requirements' | 'design'
 
 function legacyCopy(text: string): boolean {
   const field = Object.assign(document.createElement('textarea'), {
@@ -44,17 +52,20 @@ async function copyText(text: string): Promise<boolean> {
 
 interface KiroTaskModalProps {
   item: FeedItem | null
+  geminiSummary?: GeminiSummary
   open: boolean
   onClose: () => void
 }
 
 export default function KiroTaskModal({
   item,
+  geminiSummary,
   open,
   onClose,
 }: KiroTaskModalProps) {
   const timerRef = useRef<number | null>(null)
   const lastAnnouncementRef = useRef('')
+  const [activeTab, setActiveTab] = useState<SpecFileTab>('tasks')
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>(
     'idle',
   )
@@ -68,28 +79,48 @@ export default function KiroTaskModal({
     }
   }, [])
 
-  const markdown = item ? buildKiroTask(item) : ''
+  const bundle = item ? buildKiroSpecBundle(item, geminiSummary) : null
+  const activeContent = (() => {
+    if (!item || !bundle) return ''
+    if (activeTab === 'requirements') return bundle.requirements
+    if (activeTab === 'design') return bundle.design
+    return buildKiroTask(item)
+  })()
+  const specPath = bundle
+    ? `.kiro/specs/${bundle.slug}/${activeTab}.md`
+    : ''
   const score = item?.score ?? 0
 
-  const handleCopy = async () => {
-    if (!markdown) return
+  const announce = (msg: string) => {
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current)
     }
-    const ok = await copyText(markdown)
-    setCopyState(ok ? 'copied' : 'failed')
-    let message = ok ? 'Copied to clipboard' : 'Copy failed'
-    if (message === lastAnnouncementRef.current) {
-      message += '\u00A0'
+    let next = msg
+    if (next === lastAnnouncementRef.current) {
+      next += '\u00A0'
     }
-    lastAnnouncementRef.current = message
+    lastAnnouncementRef.current = next
     setStatusMessage('')
-    requestAnimationFrame(() => setStatusMessage(message))
+    requestAnimationFrame(() => setStatusMessage(next))
     timerRef.current = window.setTimeout(() => {
       setCopyState('idle')
       setStatusMessage('')
       timerRef.current = null
-    }, 2000)
+    }, 2400)
+  }
+
+  const handleCopy = async () => {
+    if (!activeContent) return
+    const ok = await copyText(activeContent)
+    setCopyState(ok ? 'copied' : 'failed')
+    announce(ok ? 'Copied to clipboard' : 'Copy failed')
+  }
+
+  const handleDownloadZip = () => {
+    if (!item) return
+    const fileName = downloadKiroSpecZip(item, geminiSummary)
+    setCopyState('idle')
+    announce(`Downloaded ${fileName}`)
   }
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -107,7 +138,7 @@ export default function KiroTaskModal({
   return (
     <Dialog open={open && Boolean(item)} onOpenChange={handleOpenChange}>
       <DialogContent className="border-zinc-200/90 bg-white/85 p-0 shadow-[0_16px_48px_rgba(0,0,0,0.12)] backdrop-blur-xl sm:max-w-2xl">
-        {item && (
+        {item && bundle && (
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
@@ -125,20 +156,55 @@ export default function KiroTaskModal({
                 <span className="truncate">{item.feedTitle}</span>
               </div>
               <DialogTitle className="mt-1.5 text-base font-semibold tracking-tight text-zinc-950">
-                Kiro task spec preview
+                Kiro spec export preview
               </DialogTitle>
               <DialogDescription className="text-[13px] text-zinc-500">
-                Review the generated Markdown spec below, then copy it into a
-                Kiro spec file.
+                Preview all 3 spec files, copy Markdown, or download a .zip
+                folder ready for <code className="font-mono">.kiro/specs/</code>
+                .
               </DialogDescription>
             </DialogHeader>
 
-            <ScrollArea className="max-h-[55vh] px-6 py-4">
-              <pre className="overflow-x-auto rounded-md border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs leading-relaxed text-zinc-800">
-                <code id="kiro-task-spec" className="whitespace-pre-wrap">
-                  {markdown}
-                </code>
-              </pre>
+            <div className="border-b border-zinc-200 bg-zinc-50/70 px-6 py-2">
+              <Tabs
+                value={activeTab}
+                onValueChange={(v) => setActiveTab(v as SpecFileTab)}
+              >
+                <TabsList className="grid h-8 w-full grid-cols-3 bg-zinc-200/60 p-0.5">
+                  <TabsTrigger
+                    value="tasks"
+                    className="h-7 font-mono text-xs data-[state=active]:bg-white"
+                  >
+                    tasks.md
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="requirements"
+                    className="h-7 font-mono text-xs data-[state=active]:bg-white"
+                  >
+                    requirements.md
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="design"
+                    className="h-7 font-mono text-xs data-[state=active]:bg-white"
+                  >
+                    design.md
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+
+            <ScrollArea className="max-h-[50vh] px-6 py-4">
+              <div className="overflow-hidden rounded-md border border-zinc-200 bg-zinc-50">
+                <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-3.5 py-2 font-mono text-[11px] text-zinc-500">
+                  <span className="truncate">{specPath}</span>
+                  <span className="shrink-0 text-zinc-400">Markdown</span>
+                </div>
+                <pre className="overflow-x-auto p-4 font-mono text-xs leading-relaxed text-zinc-800">
+                  <code id="kiro-task-spec" className="whitespace-pre-wrap">
+                    {activeContent}
+                  </code>
+                </pre>
+              </div>
             </ScrollArea>
 
             <DialogFooter className="items-center justify-between border-t border-zinc-200 px-6 py-3.5 sm:justify-between">
@@ -155,7 +221,7 @@ export default function KiroTaskModal({
               >
                 {statusMessage}
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -164,6 +230,16 @@ export default function KiroTaskModal({
                   className="h-8 border-zinc-200 text-xs shadow-none"
                 >
                   Close
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadZip}
+                  className="h-8 gap-1.5 border-zinc-200 text-xs shadow-none"
+                >
+                  <Download aria-hidden="true" className="size-3.5" />
+                  Download .zip
                 </Button>
                 <Button
                   type="button"

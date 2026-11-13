@@ -15,12 +15,12 @@ No claim of "done" without proof: `npm run build` and `npx tsc --noEmit` must pa
 Preserve working code and healthy architecture. Fix root causes, not symptoms. No mass refactors, no new dependencies without a concrete benefit and a compatibility check. Prefer the platform over a library: use native web APIs before adding a dependency.
 
 ### V. Security & privacy
-No secrets, API keys, tokens, or personal data in the repo — ever. Client-side code talks only to public RSS feeds through a CORS proxy. User data (feeds, read/saved state) stays in the user's own browser (localStorage). Nothing is sent to a server in v1.
+No secrets, API keys, tokens, or personal data in the repo or browser bundle — ever. Client-side code talks only to public RSS feeds and read-only public APIs (Hacker News Firebase API, GitHub public search API). Gemini summarization calls run strictly server-side (`server.ts` `/api/summarize`) using `GEMINI_API_KEY` provisioned by AI Studio Build. User state (feeds, read/saved state, cached summaries) stays in browser `localStorage`.
 
 ## Technology Stack
-- Web app: React 19 + Vite 8 + TypeScript 7 (strict), Tailwind CSS v4. This is exactly the stack Google AI Studio Build generates — do not introduce another framework.
-- No backend in v1. Optional v2: Node.js server runtime, Firebase (Firestore + Auth), Gemini API via server-side secrets.
-- Package manager: npm. Commands: `npm run dev`, `npm run build`, `npm run preview`, `npx tsc --noEmit`, `npm run lint`.
+- Web app: React 19 + Vite 8 + TypeScript 7 (strict), Tailwind CSS v4.
+- Server runtime: Express (`server.ts`, `"dev": "tsx server.ts"`, `"start": "node server.ts"`) hosting `/api/summarize` (`@google/genai` `gemini-4-hydrogen`) + Vite dev middleware. Optional future sync: Firebase Auth + Firestore.
+- Package manager: npm. Commands: `npm run dev`, `npm run build`, `npm run start`, `npm run preview`, `npx tsc --noEmit`, `npm run lint`.
 
 ## Development Workflow
 1. Spec: `/speckit-specify` or Kiro spec (requirements → design → tasks), review each phase.
@@ -31,10 +31,10 @@ No secrets, API keys, tokens, or personal data in the repo — ever. Client-side
 
 ## Quality Gates
 - `npm run build` passes; `npx tsc --noEmit` passes; `npm run lint` passes.
-- Manual QA: app boots, feeds load or fail inline without crashing, filters/search/keyboard work, Kiro-task copy works, no console errors.
+- Manual QA: app boots, feeds load or fail inline without crashing, filters/search/keyboard work, Kiro spec export & Gemini Summarize work, no console errors.
 - Every PR/commit message states what changed, what was verified, and what remains unverified.
 
 ## Governance
 This constitution supersedes all other practices in the repo. Amendments require a documented reason and an update to this file. Complexity must be justified. When this constitution conflicts with an agent's default habits, the constitution wins.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13
+**Version**: 1.1.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13 (Added server-side `/api/summarize`, Community Pulse, OPML, Web Share, Notifications, and `.zip` Kiro spec bundle export)

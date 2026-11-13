@@ -41,6 +41,7 @@ interface ItemListProps {
   savedIds: string[]
   onToggleSave: (id: string) => void
   onRefresh: () => void
+  pulseError?: string
 }
 
 export default function ItemList({
@@ -58,6 +59,7 @@ export default function ItemList({
   savedIds,
   onToggleSave,
   onRefresh,
+  pulseError,
 }: ItemListProps) {
   const hasActiveFilter = query.trim() !== '' || filter !== 'all'
 
@@ -74,7 +76,7 @@ export default function ItemList({
   return (
     <section
       aria-label="Feed items"
-      className="flex w-96 shrink-0 flex-col border-r border-zinc-200 bg-white"
+      className="flex w-full shrink-0 flex-col border-b border-zinc-200 bg-white md:w-80 md:border-r md:border-b-0 lg:w-96"
     >
       <div className="flex items-center gap-2 border-b border-zinc-200 px-3 py-2">
         <Tabs
@@ -129,6 +131,12 @@ export default function ItemList({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {pulseError && (
+        <p role="status" className="border-b border-zinc-200 bg-red-50/70 px-3.5 py-1.5 text-xs text-red-700">
+          Pulse notice: {pulseError}
+        </p>
+      )}
 
       <ScrollArea className="min-h-0 flex-1">
         {loading && items.length === 0 ? (
@@ -194,6 +202,10 @@ export default function ItemList({
               const isSaved = savedIds.includes(item.id)
               const isSelected = selectedId === item.id
               const score = item.score ?? 0
+              const metricLabel =
+                'metricLabel' in item && typeof item.metricLabel === 'string'
+                  ? item.metricLabel
+                  : null
 
               return (
                 <div
@@ -230,7 +242,9 @@ export default function ItemList({
                         {item.title}
                       </span>
                       <span className="mt-1 block truncate text-xs text-zinc-500">
-                        {item.feedTitle} · {timeAgo(item.pubDate)}
+                        {item.feedTitle}
+                        {metricLabel ? ` · ${metricLabel}` : ''} ·{' '}
+                        {timeAgo(item.pubDate)}
                         {item.sample ? ' · SAMPLE' : ''}
                       </span>
                     </span>

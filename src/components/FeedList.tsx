@@ -1,5 +1,14 @@
-import { useState, type FormEvent } from 'react'
-import { Layers, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
+import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import {
+  Download,
+  Flame,
+  GitBranch,
+  Layers,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+  Upload,
+} from 'lucide-react'
 import type { FeedSource } from '../lib/feeds'
 import { feedMonogram, safeHttpUrl } from '../lib/format'
 import { Avatar, AvatarFallback } from './ui/avatar'
@@ -14,16 +23,20 @@ import {
 import { Input } from './ui/input'
 import { ScrollArea } from './ui/scroll-area'
 import { Separator } from './ui/separator'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 interface FeedListProps {
   feeds: FeedSource[]
   unreadCounts: Record<string, number>
   totalUnread: number
+  pulseCounts: { hn: number; github: number }
   selectedFeed: string
   onSelect: (feedId: string) => void
   onAdd: (url: string) => { ok: boolean; error?: string }
   onRemove: (feedId: string) => void
   onRestoreDefaults: () => void
+  onImportOpml: (xml: string) => { ok: boolean; message: string }
+  onExportOpml: () => void
   errors: Record<string, string>
 }
 
@@ -31,15 +44,23 @@ export default function FeedList({
   feeds,
   unreadCounts,
   totalUnread,
+  pulseCounts,
   selectedFeed,
   onSelect,
   onAdd,
   onRemove,
   onRestoreDefaults,
+  onImportOpml,
+  onExportOpml,
   errors,
 }: FeedListProps) {
   const [url, setUrl] = useState('')
   const [addError, setAddError] = useState('')
+  const [opmlNotice, setOpmlNotice] = useState<{
+    ok: boolean
+    text: string
+  } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -57,12 +78,25 @@ export default function FeedList({
     setAddError('')
   }
 
+  const handleOpmlFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      const xml = await file.text()
+      const res = onImportOpml(xml)
+      setOpmlNotice({ ok: res.ok, text: res.message })
+    } catch {
+      setOpmlNotice({ ok: false, text: 'Could not read OPML file' })
+    }
+  }
+
   return (
     <aside
       aria-label="Feed subscriptions"
-      className="flex w-64 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50/40"
+      className="flex w-full shrink-0 flex-col border-b border-zinc-200 bg-zinc-50/40 md:w-56 md:border-r md:border-b-0 lg:w-64"
     >
-      <div className="p-2.5">
+      <div className="space-y-0.5 p-2.5">
         <Button
           type="button"
           variant="ghost"
@@ -85,15 +119,121 @@ export default function FeedList({
             </Badge>
           )}
         </Button>
+
+        <div className="px-2 pt-2.5 pb-1">
+          <p className="text-[11px] font-medium tracking-wider text-zinc-500 uppercase">
+            Community Pulse
+          </p>
+        </div>
+
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => onSelect('pulse:hn')}
+          aria-current={selectedFeed === 'pulse:hn' ? 'true' : undefined}
+          className={`h-8 w-full justify-start gap-2 px-2.5 text-[13px] shadow-none ${
+            selectedFeed === 'pulse:hn'
+              ? 'bg-zinc-100 font-semibold text-zinc-950'
+              : 'font-normal text-zinc-700 hover:bg-zinc-100/70 hover:text-zinc-950'
+          }`}
+        >
+          <Flame aria-hidden="true" className="size-3.5 shrink-0 text-zinc-500" />
+          <span className="flex-1 truncate text-left">HN Top Stories</span>
+          {pulseCounts.hn > 0 && (
+            <Badge
+              variant="secondary"
+              className="h-4 rounded px-1.5 font-mono text-[10px] font-medium tabular-nums text-zinc-600"
+            >
+              {pulseCounts.hn}
+            </Badge>
+          )}
+        </Button>
+
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => onSelect('pulse:github')}
+          aria-current={selectedFeed === 'pulse:github' ? 'true' : undefined}
+          className={`h-8 w-full justify-start gap-2 px-2.5 text-[13px] shadow-none ${
+            selectedFeed === 'pulse:github'
+              ? 'bg-zinc-100 font-semibold text-zinc-950'
+              : 'font-normal text-zinc-700 hover:bg-zinc-100/70 hover:text-zinc-950'
+          }`}
+        >
+          <GitBranch
+            aria-hidden="true"
+            className="size-3.5 shrink-0 text-zinc-500"
+          />
+          <span className="flex-1 truncate text-left">GitHub AWS</span>
+          {pulseCounts.github > 0 && (
+            <Badge
+              variant="secondary"
+              className="h-4 rounded px-1.5 font-mono text-[10px] font-medium tabular-nums text-zinc-600"
+            >
+              {pulseCounts.github}
+            </Badge>
+          )}
+        </Button>
       </div>
 
       <Separator />
 
-      <div className="px-4 pt-3 pb-1.5">
+      <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
         <p className="text-[11px] font-medium tracking-wider text-zinc-500 uppercase">
           Subscriptions
         </p>
+        <div className="flex items-center gap-0.5">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".opml,.xml,text/xml,application/xml"
+            onChange={(e) => void handleOpmlFileChange(e)}
+            className="visually-hidden"
+            aria-label="Import OPML subscriptions file"
+          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Import OPML"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-zinc-400 hover:text-zinc-950"
+              >
+                <Upload className="size-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Import Google Reader OPML</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Export OPML"
+                onClick={onExportOpml}
+                className="text-zinc-400 hover:text-zinc-950"
+              >
+                <Download className="size-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Export feeds (.opml)</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
+
+      {opmlNotice && (
+        <p
+          role={opmlNotice.ok ? 'status' : 'alert'}
+          className={`px-4 pb-1.5 text-[11px] ${
+            opmlNotice.ok ? 'text-zinc-600' : 'text-red-600'
+          }`}
+        >
+          {opmlNotice.text}
+        </p>
+      )}
 
       <ScrollArea className="min-h-0 flex-1 px-2.5 pb-2">
         {feeds.length === 0 ? (

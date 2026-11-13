@@ -11,6 +11,9 @@ import {
   type FeedItem,
   type FeedSource,
 } from './lib/feeds'
+import type { GeminiSummary } from './lib/kiroTask'
+import { downloadOpml, parseOpml } from './lib/opml'
+import { fetchCommunityPulse, type PulseSnapshot } from './lib/pulse'
 import { getSampleItems } from './lib/sampleData'
 import { scoreItem } from './lib/scoring'
 
@@ -36,8 +39,25 @@ export default function App() {
     load('rr.feeds', DEFAULT_FEEDS),
   )
   const [items, setItems] = useState<FeedItem[]>([])
+  const [pulse, setPulse] = useState<PulseSnapshot>({
+    hn: [],
+    github: [],
+    fetchedAt: '',
+    cached: false,
+    errors: {},
+  })
+  const [pulseLoading, setPulseLoading] = useState(true)
   const [readIds, setReadIds] = useState<string[]>(() => load('rr.read', []))
   const [savedIds, setSavedIds] = useState<string[]>(() => load('rr.saved', []))
+  const [summaries, setSummaries] = useState<Record<string, GeminiSummary>>(
+    () => load('rr.summaries.v1', {}),
+  )
+  const [summaryLoadingId, setSummaryLoadingId] = useState<string | null>(null)
+  const [summaryErrors, setSummaryErrors] = useState<Record<string, string>>({})
+  const [alertsEnabled, setAlertsEnabled] = useState<boolean>(() =>
+    load('rr.notify', false),
+  )
+  const notifiedRef = useRef<Set<string>>(new Set(load('rr.notified', [])))
   const [selectedFeed, setSelectedFeed] = useState('all')
   const [filter, setFilter] = useState<Filter>('all')
   const [sortBy, setSortBy] = useState<SortBy>('score')
@@ -49,40 +69,87 @@ export default function App() {
   const [usingSample, setUsingSample] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  const refresh = useCallback(async (currentFeeds: FeedSource[]) => {
-    setLoading(true)
-    const results = await Promise.all(
-      currentFeeds.map(async (feed) => {
+  const notifyHighSignal = useCallback(
+    (nextItems: FeedItem[], enabled: boolean) => {
+      if (
+        !enabled ||
+        typeof Notification === 'undefined' ||
+        Notification.permission !== 'granted'
+      ) {
+        return
+      }
+      const candidates = nextItems.filter(
+        (it) =>
+          !it.sample &&
+          (it.score ?? 0) >= 85 &&
+          !notifiedRef.current.has(it.id),
+      )
+      for (const item of candidates.slice(0, 2)) {
+        notifiedRef.current.add(item.id)
         try {
-          return { feed, items: await fetchFeed(feed), error: '' }
-        } catch (e) {
-          return {
-            feed,
-            items: [] as FeedItem[],
-            error: e instanceof Error ? e.message : 'Fetch failed',
-          }
+          new Notification(`${item.score} signal — ${item.feedTitle}`, {
+            body: item.title,
+            tag: item.id,
+          })
+        } catch {
+          // Notification constructor unsupported in current context
         }
-      }),
-    )
-    const live = results.flatMap((r) => r.items)
-    const errors: Record<string, string> = {}
-    for (const r of results) if (r.error) errors[r.feed.id] = r.error
-    setFeedErrors(errors)
-    if (live.length > 0) {
-      setItems(
-        live.map((it) => ({
+      }
+      if (candidates.length > 0) {
+        save('rr.notified', [...notifiedRef.current].slice(-100))
+      }
+    },
+    [],
+  )
+
+  const refresh = useCallback(
+    async (currentFeeds: FeedSource[], forcePulse = false) => {
+      setLoading(true)
+      setPulseLoading(true)
+
+      const feedsPromise = Promise.all(
+        currentFeeds.map(async (feed) => {
+          try {
+            return { feed, items: await fetchFeed(feed), error: '' }
+          } catch (e) {
+            return {
+              feed,
+              items: [] as FeedItem[],
+              error: e instanceof Error ? e.message : 'Fetch failed',
+            }
+          }
+        }),
+      )
+
+      const pulsePromise = fetchCommunityPulse(forcePulse)
+
+      const results = await feedsPromise
+      const live = results.flatMap((r) => r.items)
+      const errors: Record<string, string> = {}
+      for (const r of results) if (r.error) errors[r.feed.id] = r.error
+      setFeedErrors(errors)
+
+      if (live.length > 0) {
+        const scored = live.map((it) => ({
           ...it,
           score: scoreItem(it.title, it.description, it.pubDate),
-        })),
-      )
-      setUsingSample(false)
-    } else {
-      setItems(getSampleItems())
-      setUsingSample(true)
-    }
-    setLastRefresh(new Date().toISOString())
-    setLoading(false)
-  }, [])
+        }))
+        setItems(scored)
+        setUsingSample(false)
+        notifyHighSignal(scored, alertsEnabled)
+      } else {
+        setItems(getSampleItems())
+        setUsingSample(true)
+      }
+      setLastRefresh(new Date().toISOString())
+      setLoading(false)
+
+      const pulseSnap = await pulsePromise
+      setPulse(pulseSnap)
+      setPulseLoading(false)
+    },
+    [alertsEnabled, notifyHighSignal],
+  )
 
   useEffect(() => {
     save('rr.feeds', feeds)
@@ -93,17 +160,40 @@ export default function App() {
   useEffect(() => {
     save('rr.saved', savedIds)
   }, [savedIds])
+  useEffect(() => {
+    save('rr.notify', alertsEnabled)
+  }, [alertsEnabled])
 
   useEffect(() => {
-    void refresh(feeds)
+    void refresh(feeds, false)
     // Fetch once on mount; Refresh button re-runs it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const activeSourceItems: FeedItem[] = useMemo(() => {
+    if (selectedFeed === 'pulse:hn') return pulse.hn
+    if (selectedFeed === 'pulse:github') return pulse.github
+    return items
+  }, [selectedFeed, pulse.hn, pulse.github, items])
+
+  const allKnownItems: FeedItem[] = useMemo(
+    () => [...items, ...pulse.hn, ...pulse.github],
+    [items, pulse.hn, pulse.github],
+  )
+
   const visibleItems = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return items
-      .filter((it) => selectedFeed === 'all' || it.feedId === selectedFeed)
+    return activeSourceItems
+      .filter((it) => {
+        if (
+          selectedFeed === 'all' ||
+          selectedFeed === 'pulse:hn' ||
+          selectedFeed === 'pulse:github'
+        ) {
+          return true
+        }
+        return it.feedId === selectedFeed
+      })
       .filter((it) => {
         if (filter === 'high') return (it.score ?? 0) >= 70
         if (filter === 'unread') return !readIds.includes(it.id)
@@ -128,7 +218,15 @@ export default function App() {
           new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
         )
       })
-  }, [items, selectedFeed, filter, sortBy, query, readIds, savedIds])
+  }, [
+    activeSourceItems,
+    selectedFeed,
+    filter,
+    sortBy,
+    query,
+    readIds,
+    savedIds,
+  ])
 
   const selectedItem =
     visibleItems.find((it) => it.id === selectedId) ??
@@ -181,7 +279,7 @@ export default function App() {
       } else if (e.key === 'r') {
         e.preventDefault()
         e.stopPropagation()
-        void refresh(feeds)
+        void refresh(feeds, true)
       } else if (e.key === '/') {
         e.preventDefault()
         e.stopPropagation()
@@ -215,7 +313,7 @@ export default function App() {
     const feed: FeedSource = { id: `custom-${Date.now()}`, title, url }
     const next = [...feeds, feed]
     setFeeds(next)
-    void refresh(next)
+    void refresh(next, false)
     return { ok: true }
   }
 
@@ -228,8 +326,141 @@ export default function App() {
 
   const restoreDefaults = () => {
     setFeeds(DEFAULT_FEEDS)
-    void refresh(DEFAULT_FEEDS)
+    void refresh(DEFAULT_FEEDS, false)
   }
+
+  const handleImportOpml = (xml: string): { ok: boolean; message: string } => {
+    try {
+      const imported = parseOpml(xml)
+      const existingUrls = new Set(feeds.map((f) => f.url))
+      const added = imported.filter((f) => !existingUrls.has(f.url))
+      if (added.length === 0) {
+        return {
+          ok: true,
+          message: `All ${imported.length} OPML feeds already subscribed.`,
+        }
+      }
+      const next = [...feeds, ...added]
+      setFeeds(next)
+      void refresh(next, false)
+      return {
+        ok: true,
+        message: `Imported ${added.length} feed${added.length === 1 ? '' : 's'} from OPML.`,
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : 'Invalid OPML file',
+      }
+    }
+  }
+
+  const handleSummarize = async (item: FeedItem) => {
+    setSummaryLoadingId(item.id)
+    setSummaryErrors((prev) => {
+      const next = { ...prev }
+      delete next[item.id]
+      return next
+    })
+    try {
+      const res = await fetch('/api/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: item.title,
+          feedTitle: item.feedTitle,
+          link: item.link,
+          content: item.description,
+        }),
+      })
+      const data = (await res.json()) as Partial<GeminiSummary> & {
+        error?: string
+      }
+      if (!res.ok || !data.tldr) {
+        throw new Error(data.error || `HTTP ${res.status} summarizing item`)
+      }
+      const summaryObj: GeminiSummary = {
+        tldr: data.tldr,
+        takeaways: Array.isArray(data.takeaways) ? data.takeaways : [],
+        whyMatters: data.whyMatters ?? '',
+      }
+      setSummaries((prev) => {
+        const entries = Object.entries({ ...prev, [item.id]: summaryObj })
+        const trimmed = Object.fromEntries(entries.slice(-30))
+        save('rr.summaries.v1', trimmed)
+        return trimmed
+      })
+    } catch (err) {
+      setSummaryErrors((prev) => ({
+        ...prev,
+        [item.id]:
+          err instanceof Error ? err.message : 'Gemini summary unavailable.',
+      }))
+    } finally {
+      setSummaryLoadingId((curr) => (curr === item.id ? null : curr))
+    }
+  }
+
+  const handleShare = async (
+    item: FeedItem,
+  ): Promise<'shared' | 'copied' | 'cancelled'> => {
+    const shareData = {
+      title: item.title,
+      text: `${item.title} (${item.score ?? 0} signal · ${item.feedTitle})`,
+      url: item.link || window.location.href,
+    }
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share(shareData)
+        return 'shared'
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return 'cancelled'
+        }
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(
+        `${shareData.title}\n${shareData.url}`,
+      )
+      return 'copied'
+    } catch {
+      return 'cancelled'
+    }
+  }
+
+  const handleToggleAlerts = async () => {
+    if (alertsEnabled) {
+      setAlertsEnabled(false)
+      return
+    }
+    if (typeof Notification === 'undefined') {
+      setAlertsEnabled(false)
+      return
+    }
+    if (Notification.permission === 'granted') {
+      setAlertsEnabled(true)
+      notifyHighSignal(allKnownItems, true)
+      return
+    }
+    if (Notification.permission !== 'denied') {
+      const perm = await Notification.requestPermission()
+      if (perm === 'granted') {
+        setAlertsEnabled(true)
+        notifyHighSignal(allKnownItems, true)
+      }
+    }
+  }
+
+  const isPulseLoading =
+    (selectedFeed === 'pulse:hn' || selectedFeed === 'pulse:github') &&
+    pulseLoading
+  const activePulseError =
+    selectedFeed === 'pulse:hn'
+      ? pulse.errors.hn
+      : selectedFeed === 'pulse:github'
+        ? pulse.errors.github
+        : undefined
 
   return (
     <MotionConfig reducedMotion="user">
@@ -241,12 +472,15 @@ export default function App() {
             high={items.filter((it) => (it.score ?? 0) >= 70).length}
             lastRefresh={lastRefresh}
             loading={loading}
+            alertsEnabled={alertsEnabled}
             query={query}
             onQueryChange={setQuery}
             searchInputRef={searchInputRef}
             sortBy={sortBy}
             onSortChange={setSortBy}
-            onRefresh={() => void refresh(feeds)}
+            onRefresh={() => void refresh(feeds, true)}
+            onToggleAlerts={() => void handleToggleAlerts()}
+            onExportOpml={() => downloadOpml(feeds)}
             onRestoreDefaults={restoreDefaults}
           />
           {usingSample && (
@@ -255,21 +489,27 @@ export default function App() {
               your connection or add a feed below.
             </p>
           )}
-          <div className="flex min-h-0 flex-1">
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden">
             <FeedList
               feeds={feeds}
               unreadCounts={unreadCounts}
               totalUnread={unreadTotal}
+              pulseCounts={{
+                hn: pulse.hn.length,
+                github: pulse.github.length,
+              }}
               selectedFeed={selectedFeed}
               onSelect={setSelectedFeed}
               onAdd={addFeed}
               onRemove={removeFeed}
               onRestoreDefaults={restoreDefaults}
+              onImportOpml={handleImportOpml}
+              onExportOpml={() => downloadOpml(feeds)}
               errors={feedErrors}
             />
             <ItemList
               items={visibleItems}
-              loading={loading}
+              loading={loading || isPulseLoading}
               selectedId={selectedItem?.id ?? null}
               onSelect={selectItem}
               filter={filter}
@@ -281,11 +521,23 @@ export default function App() {
               readIds={readIds}
               savedIds={savedIds}
               onToggleSave={toggleSave}
-              onRefresh={() => void refresh(feeds)}
+              onRefresh={() => void refresh(feeds, true)}
+              pulseError={activePulseError}
             />
             <ReaderPane
               item={selectedItem}
               saved={selectedItem ? savedIds.includes(selectedItem.id) : false}
+              geminiSummary={
+                selectedItem ? summaries[selectedItem.id] : undefined
+              }
+              summaryLoading={
+                selectedItem ? summaryLoadingId === selectedItem.id : false
+              }
+              summaryError={
+                selectedItem ? summaryErrors[selectedItem.id] : undefined
+              }
+              onSummarize={(it) => void handleSummarize(it)}
+              onShare={handleShare}
               onToggleSave={toggleSave}
               onMarkUnread={(id) =>
                 setReadIds((prev) => prev.filter((x) => x !== id))

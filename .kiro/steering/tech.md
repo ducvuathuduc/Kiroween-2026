@@ -7,7 +7,7 @@ inclusion: always
 ## Stack
 - React + Vite + TypeScript (AI Studio Build default), Tailwind CSS.
 - No backend in v1. No API keys required.
-- RSS fetched client-side through https://api.allorigins.win/raw?url= (CORS proxy), parsed with DOMParser.
+- RSS fetched client-side via `api.rss2json.com` (CORS-enabled JSON, primary) with `api.allorigins.win/raw?url=` and direct CORS `fetch` + `DOMParser` fallbacks.
 - State persisted in localStorage (feeds, read/saved).
 
 ## Verified live feeds

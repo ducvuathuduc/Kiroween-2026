@@ -1,6 +1,9 @@
 import type { RefObject } from 'react'
 import {
   ArrowUpDown,
+  Bell,
+  BellOff,
+  Download,
   MoreHorizontal,
   RefreshCw,
   RotateCcw,
@@ -33,12 +36,15 @@ interface TopBarProps {
   high: number
   lastRefresh: string | null
   loading: boolean
+  alertsEnabled: boolean
   query: string
   onQueryChange: (q: string) => void
   searchInputRef: RefObject<HTMLInputElement | null>
   sortBy: SortBy
   onSortChange: (sort: SortBy) => void
   onRefresh: () => void
+  onToggleAlerts: () => void
+  onExportOpml: () => void
   onRestoreDefaults: () => void
 }
 
@@ -48,12 +54,15 @@ export default function TopBar({
   high,
   lastRefresh,
   loading,
+  alertsEnabled,
   query,
   onQueryChange,
   searchInputRef,
   sortBy,
   onSortChange,
   onRefresh,
+  onToggleAlerts,
+  onExportOpml,
   onRestoreDefaults,
 }: TopBarProps) {
   const formattedRefresh = lastRefresh ? formatRefreshTime(lastRefresh) : ''
@@ -68,7 +77,8 @@ export default function TopBar({
           R
         </span>
         <span className="truncate text-sm font-semibold tracking-tight text-zinc-950">
-          Resurrected Reader
+          <span className="hidden sm:inline">Resurrected Reader</span>
+          <span className="sm:hidden">Reader</span>
         </span>
         <Separator orientation="vertical" className="hidden h-4 sm:block" />
         <div className="hidden items-center gap-3 font-mono text-xs text-zinc-500 lg:flex">
@@ -84,8 +94,8 @@ export default function TopBar({
         </div>
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
-        <div className="relative w-48 sm:w-64">
+      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+        <div className="relative w-36 sm:w-56 md:w-64">
           <label htmlFor="search-items" className="visually-hidden">
             Search titles and summaries
           </label>
@@ -141,6 +151,39 @@ export default function TopBar({
             <Button
               type="button"
               variant="ghost"
+              size="icon-sm"
+              aria-pressed={alertsEnabled}
+              aria-label={
+                alertsEnabled
+                  ? 'Disable high-signal notifications'
+                  : 'Enable high-signal notifications (≥85)'
+              }
+              onClick={onToggleAlerts}
+              className={
+                alertsEnabled
+                  ? 'bg-zinc-100 text-zinc-950 hover:bg-zinc-200/70'
+                  : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-950'
+              }
+            >
+              {alertsEnabled ? (
+                <Bell className="size-3.5" />
+              ) : (
+                <BellOff className="size-3.5" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {alertsEnabled
+              ? 'High-signal alerts (≥85) on'
+              : 'Notify on items scoring ≥85'}
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
               size="sm"
               onClick={onRefresh}
               disabled={loading}
@@ -174,7 +217,7 @@ export default function TopBar({
                 </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>Sort & feed options</TooltipContent>
+            <TooltipContent>Sort, OPML & feed options</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-zinc-500">
@@ -197,6 +240,10 @@ export default function TopBar({
               <RefreshCw className="size-3.5" />
               Refresh all feeds
               <DropdownMenuShortcut>r</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onExportOpml}>
+              <Download className="size-3.5" />
+              Export feeds (.opml)
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onRestoreDefaults}>
               <RotateCcw className="size-3.5" />

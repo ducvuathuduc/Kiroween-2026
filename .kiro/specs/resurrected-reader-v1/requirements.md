@@ -11,13 +11,16 @@
 
 ## Acceptance criteria
 
-- [ ] Add feed validates http(s) URL, fetches it, shows items; invalid URL shows an inline error, no crash.
-- [ ] A feed that fails to fetch shows a per-feed error; other feeds keep working.
-- [ ] Signal score 0–100, deterministic: keyword weights (kiro +25, aws +15, agent/agentic +20, llm/ai coding +15, startup +10, security +10) + recency (today +15, this week +8), capped at 100.
-- [ ] List sorted by score desc, then date desc. High-signal filter shows only ≥70.
-- [ ] Clicking an item opens it in the reader pane and marks it read.
-- [ ] Save/Unsave, Mark unread, Refresh all work. Refresh re-fetches all feeds and updates the timestamp.
-- [ ] "→ Kiro task" shows a modal with a Markdown spec and copies it to clipboard.
-- [ ] Keyboard: j/k move selection, s save/unsave, r refresh.
-- [ ] 6 sample items bundled so first open looks alive offline; labeled as sample.
-- [ ] `npm run build` passes; no console errors on load; no dead buttons; no lorem ipsum.
+- [x] Add feed validates http(s) URL, fetches it, shows items; invalid URL shows an inline error, no crash.
+- [x] A feed that fails to fetch shows a per-feed error; other feeds keep working.
+- [x] Signal score 0–100, deterministic: keyword weights (kiro +25, aws +15, agent/agentic +20, llm/ai coding +15, startup +10, security +10) + recency (today +15, this week +8), capped at 100.
+- [x] List sorted by score desc, then date desc. High-signal filter shows only ≥70.
+- [x] Clicking an item opens it in the reader pane and marks it read.
+- [x] Save/Unsave, Mark unread, Refresh all work. Refresh re-fetches all feeds and updates the timestamp.
+- [x] "→ Kiro task" shows a 3-file spec preview (`tasks.md`, `requirements.md`, `design.md`), copies Markdown to clipboard, and downloads a `<slug>-kiro-spec.zip` bundle; AWS Docs MCP registered in `.kiro/settings/mcp.json`.
+- [x] "Summarize" generates a structured Gemini TL;DR via server-side `POST /api/summarize` without exposing `GEMINI_API_KEY`.
+- [x] Community Pulse displays live Hacker News top stories and GitHub `topic:aws` repositories with `localStorage` + session caching.
+- [x] OPML import/export (Google Reader `.opml`), Web Share (`navigator.share` + clipboard fallback), and high-signal notifications (`≥85`) work natively.
+- [x] Keyboard: j/k move selection, s save/unsave, r refresh.
+- [x] 6 sample items bundled so first open looks alive offline; labeled as sample.
+- [x] `npm run build` passes; no console errors on load; no dead buttons; no lorem ipsum.
