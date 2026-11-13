@@ -35,6 +35,7 @@ export default function MermaidDiagram({
             theme: 'neutral',
             htmlLabels: false,
             fontFamily: 'Geist Variable, system-ui, sans-serif',
+            themeCSS: '.edgeLabel rect { opacity: 1; }',
             flowchart: {
               htmlLabels: false,
               curve: 'basis',
