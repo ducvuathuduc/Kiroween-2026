@@ -1,3 +1,5 @@
+import { safeHttpUrl } from './format'
+
 export interface FeedItem {
   id: string
   /** FeedSource.id this item came from */
@@ -8,6 +10,8 @@ export interface FeedItem {
   /** ISO date string */
   pubDate: string
   description: string
+  /** Raw feed HTML description, always sanitized via Sanitizer API / DOMPurify before rendering */
+  descriptionHtml?: string
   /** 0-100 deterministic signal score, set after scoring */
   score?: number
   /** True when this item comes from the bundled offline sample set */
@@ -37,10 +41,20 @@ export const DEFAULT_FEEDS: FeedSource[] = [
 const PROXY = 'https://api.allorigins.win/raw?url='
 
 export async function fetchFeed(source: FeedSource): Promise<FeedItem[]> {
-  const res = await fetch(PROXY + encodeURIComponent(source.url))
+  const res = await fetch(PROXY + encodeURIComponent(source.url), {
+    signal: AbortSignal.timeout(5000),
+  })
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${source.title}`)
   const text = await res.text()
   return parseFeed(text, source)
+}
+
+function normalizeDate(rawDate: string): string {
+  if (!rawDate) return new Date().toISOString()
+  const parsed = new Date(rawDate)
+  return Number.isNaN(parsed.getTime())
+    ? new Date().toISOString()
+    : parsed.toISOString()
 }
 
 export function parseFeed(xml: string, source: FeedSource): FeedItem[] {
@@ -53,22 +67,25 @@ export function parseFeed(xml: string, source: FeedSource): FeedItem[] {
     const text = (tag: string) =>
       el.querySelector(tag)?.textContent?.trim() ?? ''
     const linkEl = el.querySelector('link')
-    const link =
+    const rawLink =
       linkEl?.getAttribute('href') || text('link') || text('guid') || ''
+    const link = safeHttpUrl(rawLink) ?? ''
     const rawDate = text('pubDate') || text('updated') || text('published')
-    const pubDate = rawDate
-      ? new Date(rawDate).toISOString()
-      : new Date().toISOString()
+    const pubDate = normalizeDate(rawDate)
+    const rawHtml =
+      text('content\\:encoded') ||
+      text('description') ||
+      text('summary') ||
+      text('content')
     return {
-      id: `${source.id}-${i}-${link}`,
+      id: `${source.id}-${i}-${link || text('guid') || text('title')}`,
       feedId: source.id,
       feedTitle: source.title,
       title: stripHtml(text('title')) || '(untitled)',
       link,
       pubDate,
-      description: stripHtml(
-        text('description') || text('summary') || text('content'),
-      ),
+      description: stripHtml(rawHtml),
+      descriptionHtml: rawHtml || undefined,
     }
   })
 }
