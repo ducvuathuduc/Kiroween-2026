@@ -64,6 +64,7 @@ interface TopBarProps {
   sortBy: SortBy
   onSortChange: (sort: SortBy) => void
   onOpenCommandPalette: () => void
+  onOpenAsk: () => void
   onOpenShortcutsModal: () => void
   onRefresh: () => void
   onToggleAlerts: () => void
@@ -98,6 +99,7 @@ export default function TopBar({
   sortBy,
   onSortChange,
   onOpenCommandPalette,
+  onOpenAsk,
   onOpenShortcutsModal,
   onRefresh,
   onToggleAlerts,
@@ -234,6 +236,7 @@ export default function TopBar({
           )}
         </div>
 
+        <Button type="button" variant="outline" size="sm" onClick={onOpenAsk} className="h-8 px-2 text-xs">Ask</Button>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

@@ -154,7 +154,9 @@ test('Ask framed HTTP reader accepts chunk boundaries/Unicode and fails closed o
       controller.close()
     } }), { headers: { 'content-type': 'application/x-ndjson' } })
   }
-  assert.deepEqual(await readAskResponse(make(raw)), valid)
+  const events: string[] = []
+  assert.deepEqual(await readAskResponse(make(raw), (event) => events.push(event.type)), valid)
+  assert.deepEqual(events, ['sources', 'answer', 'done'])
   assert.deepEqual(await readAskResponse(make(raw.replace('protocol fixture', 'Unicode café fixture'), 1)), {
     ...valid, answer: { kind: 'answer', statements: [{ text: 'Explicit cited Unicode café fixture.', citations: [1] }] },
   })
@@ -165,6 +167,7 @@ test('Ask framed HTTP reader accepts chunk boundaries/Unicode and fails closed o
   ]) await assert.rejects(readAskResponse(make(broken)))
   await assert.rejects(readAskResponse(new Response('html')), /Invalid Ask response/)
   await assert.rejects(readAskResponse(new Response('untrusted upstream content', { status: 503 })), /unavailable/)
+  await assert.rejects(readAskResponse(new Response('', { status: 408 })), /timed out/)
 })
 
 test('Ask API rejects invalid bodies before retrieval, and cancellation is explicit', async () => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, MotionConfig } from 'motion/react'
 import AboutPage from './components/AboutPage'
+import AskPanel from './components/AskPanel'
 import ChangelogPage from './components/ChangelogPage'
 import CommandPalette from './components/CommandPalette'
 import DailyBriefingView from './components/DailyBriefingView'
@@ -93,6 +94,8 @@ export default function App() {
     typeof window !== 'undefined' ? window.location.pathname : '/',
   )
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [askOpen, setAskOpen] = useState(false)
+  const [askQuestion, setAskQuestion] = useState('')
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [kiroModalOpen, setKiroModalOpen] = useState(false)
   const [lastVisitIso, setLastVisitIso] = useState<string | null>(() =>
@@ -959,6 +962,7 @@ export default function App() {
             sortBy={sortBy}
             onSortChange={setSortBy}
             onOpenCommandPalette={() => setPaletteOpen(true)}
+            onOpenAsk={() => { setAskQuestion(''); setAskOpen(true) }}
             onOpenShortcutsModal={() => setShortcutsOpen(true)}
             onRefresh={() => void refresh(feeds, true)}
             onToggleAlerts={() => void handleToggleAlerts()}
@@ -1247,7 +1251,10 @@ export default function App() {
               navigateTo('feed')
             }}
             onSelectItem={openItemInReader}
+            onOpenAsk={(question) => { setAskQuestion(question); setAskOpen(true) }}
           />
+
+          <AskPanel open={askOpen} onOpenChange={setAskOpen} initialQuestion={askQuestion} provider={settings.aiProvider} />
 
           <KeyboardShortcutsModal
             open={shortcutsOpen}

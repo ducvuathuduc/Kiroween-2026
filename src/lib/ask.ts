@@ -54,10 +54,11 @@ export interface AskResult {
 }
 
 /** Read buffered NDJSON frames; never treat a truncated/error stream as success. */
-export async function readAskResponse(response: Response): Promise<AskResult> {
+export async function readAskResponse(response: Response, onEvent?: (event: AskEvent) => void): Promise<AskResult> {
   if (!response.ok) {
     // Only fixed local errors are presented; never show arbitrary upstream HTML.
     if (response.status === 400) throw new Error('Enter a question of 1–500 characters.')
+    if (response.status === 408) throw new Error('Ask was cancelled or timed out. Retry later.')
     if (response.status === 503) throw new Error('Ask retrieval or an AI provider is unavailable. Check server provider configuration and retry.')
     throw new Error('Ask could not complete. Retry later.')
   }
@@ -77,7 +78,15 @@ export async function readAskResponse(response: Response): Promise<AskResult> {
       if (!line.trim() || events.length >= 3) throw new Error('Invalid Ask stream framing.')
       const event = askEventSchema.parse(JSON.parse(line))
       if (event.type !== ['sources', 'answer', 'done'][events.length]) throw new Error('Invalid Ask event order.')
+      if (event.type === 'sources' && event.sources.some((source, index) => source.label !== index + 1)) throw new Error('Invalid Ask source labels.')
+      if (event.type === 'answer') {
+        const context = events[0]
+        if (!context || context.type !== 'sources') throw new Error('Missing Ask sources.')
+        if (event.answer.kind === 'answer' && event.answer.statements.some((statement) => statement.citations.some((label) => !context.sources.some((source) => source.label === label)))) throw new Error('Invalid Ask citations.')
+        if (event.answer.kind === 'abstention' && context.sources.length) throw new Error('Invalid Ask abstention.')
+      }
       events.push(event)
+      if (event.type !== 'done') onEvent?.(event)
     }
   }
   try {
@@ -100,6 +109,7 @@ export async function readAskResponse(response: Response): Promise<AskResult> {
         throw new Error('Invalid Ask citations or provider metadata.')
       }
     } else if (context.sources.length || completion.provider) throw new Error('Invalid Ask abstention.')
+    onEvent?.(completion)
     return { context, answer: answerEvent.answer, completion }
   } finally {
     await reader.cancel().catch(() => {})
