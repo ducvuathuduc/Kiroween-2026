@@ -51,6 +51,7 @@ test('sanitizeSettings falls back safely on malformed input and preserves valid 
       defaultFilter: 'high',
       reducedMotion: 'reduce',
       aiProvider: 'gemini',
+      personalBoostEnabled: true,
     },
   )
   assert.deepEqual(

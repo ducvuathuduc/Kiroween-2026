@@ -6,6 +6,7 @@ import { isNewSince } from '../lib/briefing'
 import type { FeedItem } from '../lib/feeds'
 import { summarize, timeAgo } from '../lib/format'
 import type { GeminiSummary } from '../lib/kiroTask'
+import type { TasteProfile } from '../lib/personalize'
 import { getProviderDisplayName, type AIProviderId } from '../lib/providers'
 import type { ReaderDensity } from '../lib/storage'
 import ItemThumbnail from './ItemThumbnail'
@@ -34,6 +35,7 @@ const FILTERS: { id: Filter; label: string }[] = [
 
 interface ItemListProps {
   items: FeedItem[]
+  profile?: TasteProfile
   loading: boolean
   selectedId: string | null
   onSelect: (id: string) => void
@@ -69,6 +71,7 @@ function firstLine(text: string): string {
 
 export default function ItemList({
   items,
+  profile,
   loading,
   selectedId,
   onSelect,
@@ -395,6 +398,7 @@ export default function ItemList({
                       >
                         <ScoreBreakdownPopover
                           item={item}
+                          profile={profile}
                           align="end"
                           onSelectItem={onSelect}
                           onOpenRadar={onOpenRadar}

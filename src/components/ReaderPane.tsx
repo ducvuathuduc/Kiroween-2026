@@ -20,6 +20,7 @@ import {
   timeAgo,
 } from '../lib/format'
 import type { GeminiSummary } from '../lib/kiroTask'
+import type { TasteProfile } from '../lib/personalize'
 import { getProviderDisplayName } from '../lib/providers'
 import type { ReaderDensity } from '../lib/storage'
 import ItemThumbnail from './ItemThumbnail'
@@ -36,6 +37,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 interface ReaderPaneProps {
   item: FeedItem | null
+  profile?: TasteProfile
+  onSkip: (item: FeedItem) => void
   extractedHtml?: string
   saved: boolean
   lastVisitIso: string | null
@@ -55,6 +58,8 @@ interface ReaderPaneProps {
 
 export default function ReaderPane({
   item,
+  profile,
+  onSkip,
   extractedHtml,
   saved,
   lastVisitIso,
@@ -212,6 +217,7 @@ export default function ReaderPane({
 
                 <ScoreBreakdownPopover
                   item={item}
+                  profile={profile}
                   animate
                   showLabel
                   onOpenRadar={onOpenRadar}
@@ -330,6 +336,10 @@ export default function ReaderPane({
                   </TooltipTrigger>
                   <TooltipContent>Toggle bookmark (b)</TooltipContent>
                 </Tooltip>
+
+                <Button type="button" variant="outline" size="sm" disabled={!profile || item.sample} onClick={() => { onSkip(item); flashStatus('Feedback recorded') }} className="h-8 text-xs">
+                  Less like this
+                </Button>
 
                 <Button
                   type="button"

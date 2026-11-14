@@ -1,6 +1,7 @@
 import { Activity } from 'lucide-react'
 import type { FeedItem } from '../lib/feeds'
 import { scoreBadgeClass } from '../lib/format'
+import { explainBoost, personalBoost, type TasteProfile } from '../lib/personalize'
 import { explainScore, SIGNAL_DIMENSION_META } from '../lib/scoring'
 import AnimatedScore from './AnimatedScore'
 import { Badge } from './ui/badge'
@@ -15,6 +16,7 @@ interface ScoreBreakdownPopoverProps {
   align?: 'start' | 'center' | 'end'
   onOpenRadar?: () => void
   onSelectItem?: (id: string) => void
+  profile?: TasteProfile
 }
 
 export default function ScoreBreakdownPopover({
@@ -24,6 +26,7 @@ export default function ScoreBreakdownPopover({
   align = 'start',
   onOpenRadar,
   onSelectItem,
+  profile,
 }: ScoreBreakdownPopoverProps) {
   const breakdown = explainScore(item.title, item.scoreText ?? item.description, item.pubDate, {
     feedId: item.feedId,
@@ -32,6 +35,7 @@ export default function ScoreBreakdownPopover({
   })
   const score = item.score ?? breakdown.score
   const dims = item.scoreDimensions ?? breakdown.dimensions
+  const boost = profile ? personalBoost(item, profile) : 0
 
   return (
     <Popover>
@@ -63,7 +67,7 @@ export default function ScoreBreakdownPopover({
               Why this score
             </p>
             <p className="text-[11px] text-zinc-500">
-              Deterministic 4-dimension model
+              Deterministic 4D signal · base score
             </p>
           </div>
           <span className="font-mono text-sm font-semibold tabular-nums text-zinc-950">
@@ -103,6 +107,11 @@ export default function ScoreBreakdownPopover({
         </div>
 
         <Separator className="my-3" />
+
+        {profile && <div className="mb-3 text-xs text-zinc-700">
+          <p className="font-semibold">{boost >= 0 ? '+' : ''}{boost} personal</p>
+          <p className="mt-1 text-zinc-500">{explainBoost(item, profile)}</p>
+        </div>}
 
         {breakdown.reasons.length === 0 ? (
           <p className="text-[11px] text-zinc-500">

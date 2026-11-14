@@ -209,3 +209,8 @@ export function scoreItem(
 ): number {
   return explainScore(title, description, pubDate, context).score
 }
+
+/** Rank with a separate bounded personal adjustment; never change the signal score. */
+export function applyPersonalBoost(score: number, boost: number): number {
+  return clamp100(score + Math.max(-10, Math.min(10, boost)))
+}

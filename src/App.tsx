@@ -32,6 +32,7 @@ import {
 } from './lib/feeds'
 import type { GeminiSummary } from './lib/kiroTask'
 import { downloadOpml, parseOpml } from './lib/opml'
+import { demoProfile, emptyProfile, personalBoost, recordFeedback, type Feedback, type TasteProfile } from './lib/personalize'
 import {
   DEFAULT_PROVIDER_STATUSES,
   rankItemsByCosine,
@@ -49,17 +50,19 @@ import {
   type NavigableRoute,
 } from './lib/routes'
 import { getSampleItems } from './lib/sampleData'
-import { explainScore } from './lib/scoring'
+import { applyPersonalBoost, explainScore } from './lib/scoring'
 import {
   cachedCoverImages,
   clearReaderStorage,
   DEFAULT_SETTINGS,
   initSessionVisitTimestamp,
   loadSettings,
+  loadTasteProfile,
   loadReaderSnapshot,
   loadStorage,
   recordVisitTimestamp,
   saveStorage,
+  saveTasteProfile,
   saveReaderSnapshot,
   SETTINGS_STORAGE_KEY,
   type ReaderSettings,
@@ -82,6 +85,33 @@ async function fetchMissingOgImages(
 
 export default function App() {
   const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings())
+  const [taste, setTaste] = useState<TasteProfile>(emptyProfile)
+  const [tasteReady, setTasteReady] = useState(false)
+  const [tasteStatus, setTasteStatus] = useState('')
+  const tasteRef = useRef(taste)
+  const tasteWrites = useRef<Promise<void>>(Promise.resolve())
+  useEffect(() => {
+    let active = true
+    void loadTasteProfile().then((profile) => {
+      if (!active) return
+      tasteRef.current = profile
+      setTaste(profile)
+      setTasteReady(true)
+    })
+    return () => { active = false }
+  }, [])
+  const updateTaste = useCallback((profile: TasteProfile, message: string) => {
+    tasteRef.current = profile
+    setTaste(profile)
+    tasteWrites.current = tasteWrites.current.then(async () => {
+      const saved = await saveTasteProfile(profile)
+      setTasteStatus(saved ? message : 'Could not save taste locally; changes are temporary.')
+    })
+  }, [])
+  const learn = useCallback((item: FeedItem | undefined, feedback: Feedback) => {
+    if (!tasteReady || !settings.personalBoostEnabled || !item || item.sample) return
+    updateTaste(recordFeedback(item.id, feedback, item, tasteRef.current), 'Taste updated on this device.')
+  }, [tasteReady, settings.personalBoostEnabled, updateTaste])
   const [feeds, setFeeds] = useState<FeedSource[]>(() =>
     loadStorage('rr.feeds', DEFAULT_FEEDS),
   )
@@ -543,6 +573,12 @@ export default function App() {
       )
     }
 
+    const rankedScores = new Map<string, number>()
+    if (sortBy === 'score') {
+      for (const item of feedAndTabItems) {
+        rankedScores.set(item.id, applyPersonalBoost(item.score ?? 0, settings.personalBoostEnabled ? personalBoost(item, taste) : 0))
+      }
+    }
     return feedAndTabItems
       .filter(
         (it) =>
@@ -558,11 +594,11 @@ export default function App() {
           )
         }
         return (
-          (b.score ?? 0) - (a.score ?? 0) ||
+          (rankedScores.get(b.id) ?? 0) - (rankedScores.get(a.id) ?? 0) ||
           new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
         )
       })
-  }, [feedAndTabItems, query, sortBy, semanticActiveForQuery, semanticResult])
+  }, [feedAndTabItems, query, sortBy, semanticActiveForQuery, semanticResult, settings.personalBoostEnabled, taste])
 
   const selectedItem =
     visibleItems.find((it) => it.id === selectedId) ??
@@ -589,8 +625,9 @@ export default function App() {
 
   const selectItem = useCallback((id: string) => {
     setSelectedId(id)
+    if (!readIds.includes(id)) learn(allKnownItems.find((item) => item.id === id), 'read')
     setReadIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
-  }, [])
+  }, [readIds, allKnownItems, learn])
 
   const openItemInReader = useCallback(
     (id: string) => {
@@ -605,10 +642,11 @@ export default function App() {
   )
 
   const toggleSave = useCallback((id: string) => {
+    if (!savedIds.includes(id)) learn(allKnownItems.find((item) => item.id === id), 'star')
     setSavedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     )
-  }, [])
+  }, [savedIds, allKnownItems, learn])
 
   const handleSummarize = useCallback(
     async (item: FeedItem) => {
@@ -907,6 +945,7 @@ export default function App() {
 
   const handleClearAllData = () => {
     clearReaderStorage()
+    updateTaste(emptyProfile(), 'Taste reset on this device.')
     realItemsRef.current = []
     setItems([])
     setLastRefresh(null)
@@ -1024,6 +1063,7 @@ export default function App() {
                 />
                 <ItemList
                   items={visibleItems}
+                  profile={tasteReady && settings.personalBoostEnabled ? taste : undefined}
                   loading={loading || isPulseLoading}
                   selectedId={selectedItem?.id ?? null}
                   onSelect={selectItem}
@@ -1055,6 +1095,8 @@ export default function App() {
                 />
                 <ReaderPane
                   item={selectedItem}
+                  profile={tasteReady && settings.personalBoostEnabled ? taste : undefined}
+                  onSkip={(item) => learn(item, 'skip')}
                   extractedHtml={selectedItem ? articles[selectedItem.id]?.html : undefined}
                   saved={
                     selectedItem ? savedIds.includes(selectedItem.id) : false
@@ -1205,6 +1247,10 @@ export default function App() {
               >
                 <SettingsPage
                   settings={settings}
+                  tasteReady={tasteReady}
+                  tasteStatus={tasteStatus}
+                  onResetTaste={() => updateTaste(emptyProfile(), 'Taste reset on this device.')}
+                  onDemoTaste={() => updateTaste(demoProfile(), 'Demo profile: AWS-builder applied on this device.')}
                   providers={providers}
                   onUpdateSettings={setSettings}
                   onApplyDefaultFilterNow={setFilter}

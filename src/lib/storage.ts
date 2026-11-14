@@ -2,6 +2,7 @@ import { sanitizeProviderId, type AIProviderId } from './providers'
 import type { FeedItem } from './feeds'
 import { selectDailyBriefingItems, type FeedHealth } from './briefing'
 import type { PulseSnapshot } from './pulse'
+import { emptyProfile, type TasteProfile } from './personalize'
 
 export const LAST_VISIT_STORAGE_KEY = 'rr.lastVisit.v1'
 export const SETTINGS_STORAGE_KEY = 'rr.settings.v1'
@@ -15,6 +16,7 @@ export interface ReaderSettings {
   defaultFilter: DefaultFilter
   reducedMotion: MotionPreference
   aiProvider: AIProviderId
+  personalBoostEnabled: boolean
 }
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
@@ -22,6 +24,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   defaultFilter: 'all',
   reducedMotion: 'system',
   aiProvider: 'gemini',
+  personalBoostEnabled: true,
 }
 
 export function sanitizeSettings(raw: unknown): ReaderSettings {
@@ -38,7 +41,8 @@ export function sanitizeSettings(raw: unknown): ReaderSettings {
   const reducedMotion: MotionPreference =
     obj.reducedMotion === 'reduce' ? 'reduce' : 'system'
   const aiProvider = sanitizeProviderId(obj.aiProvider)
-  return { density, defaultFilter, reducedMotion, aiProvider }
+  const personalBoostEnabled = obj.personalBoostEnabled !== false
+  return { density, defaultFilter, reducedMotion, aiProvider, personalBoostEnabled }
 }
 
 export function loadStorage<T>(key: string, fallback: T): T {
@@ -60,6 +64,54 @@ export function saveStorage(key: string, value: unknown): void {
 
 export function loadSettings(): ReaderSettings {
   return sanitizeSettings(loadStorage<unknown>(SETTINGS_STORAGE_KEY, null))
+}
+
+function openTasteDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('rr-personalization', 1)
+    request.onupgradeneeded = () => request.result.createObjectStore('taste')
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+export async function loadTasteProfile(): Promise<TasteProfile> {
+  try {
+    const db = await openTasteDatabase()
+    try {
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction('taste').objectStore('taste').get('profile')
+        request.onsuccess = () => {
+          const value: unknown = request.result
+          if (!value || typeof value !== 'object') return resolve(emptyProfile())
+          const candidate = value as Partial<TasteProfile>
+          const validVector = (v: unknown) => Array.isArray(v) && (v.length === 0 || v.length === 128) && v.every((n) => typeof n === 'number' && Number.isFinite(n))
+          if (!candidate.counts || !Number.isSafeInteger(candidate.counts.liked) || candidate.counts.liked < 0 ||
+            !Number.isSafeInteger(candidate.counts.disliked) || candidate.counts.disliked < 0 ||
+            !candidate.topicWeights || typeof candidate.topicWeights !== 'object' ||
+            !Object.values(candidate.topicWeights).every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= 8) ||
+            !validVector(candidate.likedCentroid) || !validVector(candidate.dislikedCentroid)) return resolve(emptyProfile())
+          resolve(candidate as TasteProfile)
+        }
+        request.onerror = () => reject(request.error)
+      })
+    } finally { db.close() }
+  } catch { return emptyProfile() }
+}
+
+export async function saveTasteProfile(profile: TasteProfile): Promise<boolean> {
+  try {
+    const db = await openTasteDatabase()
+    try {
+      return await new Promise((resolve, reject) => {
+        const transaction = db.transaction('taste', 'readwrite')
+        transaction.objectStore('taste').put(profile, 'profile')
+        transaction.oncomplete = () => resolve(true)
+        transaction.onerror = () => reject(transaction.error)
+        transaction.onabort = () => reject(transaction.error)
+      })
+    } finally { db.close() }
+  } catch { return false }
 }
 
 export function clearReaderStorage(): void {

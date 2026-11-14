@@ -23,6 +23,10 @@ interface SettingsPageProps {
   onApplyDefaultFilterNow: (filter: DefaultFilter) => void
   alertsEnabled: boolean
   onToggleAlerts: () => void
+  tasteReady: boolean
+  tasteStatus: string
+  onResetTaste: () => void
+  onDemoTaste: () => void
   stats: {
     feedsCount: number
     readCount: number
@@ -42,6 +46,10 @@ export default function SettingsPage({
   onApplyDefaultFilterNow,
   alertsEnabled,
   onToggleAlerts,
+  tasteReady,
+  tasteStatus,
+  onResetTaste,
+  onDemoTaste,
   stats,
   onExportJson,
   onExportOpml,
@@ -87,6 +95,17 @@ export default function SettingsPage({
       </div>
 
       <div className="space-y-6">
+        <section aria-label="Personal ranking" className="rounded-lg border border-zinc-200 bg-white p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div><h2 className="text-sm font-semibold">Personal ranking</h2><p className="mt-1 text-xs text-zinc-500">Adjust feed order from local reading feedback. The deterministic signal score stays unchanged.</p></div>
+            <Switch aria-label="Enable personal ranking" checked={settings.personalBoostEnabled} onCheckedChange={(checked) => onUpdateSettings({ ...settings, personalBoostEnabled: checked })} />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={!tasteReady} onClick={onResetTaste}>Reset my taste</Button>
+            <Button type="button" variant="outline" size="sm" disabled={!tasteReady} onClick={onDemoTaste}>Demo profile: AWS-builder</Button>
+          </div>
+          {tasteStatus && <p role="status" className="mt-3 text-xs text-zinc-600">{tasteStatus}</p>}
+        </section>
         <section
           aria-label="Reading interface preferences"
           className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 bg-white"

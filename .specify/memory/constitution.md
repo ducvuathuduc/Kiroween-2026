@@ -15,7 +15,7 @@ No claim of "done" without proof: `npm run build` and `npx tsc --noEmit` must pa
 Preserve working code and healthy architecture. Fix root causes, not symptoms. No mass refactors, no new dependencies without a concrete benefit and a compatibility check. Prefer the platform over a library: use native web APIs before adding a dependency.
 
 ### V. Security & privacy
-No secrets, API keys, tokens, or personal data in the repo or browser bundle — ever. Client-side code talks only to public RSS feeds and read-only public APIs (Hacker News Firebase API, GitHub public search API). Gemini summarization calls run strictly server-side (`server.ts` `/api/summarize`) using `GEMINI_API_KEY` provisioned by AI Studio Build. User state (feeds, read/saved state, cached summaries) stays in browser `localStorage`.
+No secrets, API keys, tokens, or personal data in the repo or browser bundle — ever. Client-side code talks only to public RSS feeds and read-only public APIs (Hacker News Firebase API, GitHub public search API). Gemini summarization calls run strictly server-side (`server.ts` `/api/summarize`) using `GEMINI_API_KEY` provisioned by AI Studio Build. Existing user state (feeds, read/saved state, cached summaries) stays in browser `localStorage`; the personal taste profile stays on the device in IndexedDB and is not sent to the server.
 
 ## Technology Stack
 - Web app: React 19 + Vite 8 + TypeScript 7 (strict), Tailwind CSS v4.
@@ -37,4 +37,4 @@ No secrets, API keys, tokens, or personal data in the repo or browser bundle —
 ## Governance
 This constitution supersedes all other practices in the repo. Amendments require a documented reason and an update to this file. Complexity must be justified. When this constitution conflicts with an agent's default habits, the constitution wins.
 
-**Version**: 1.2.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13 (Owner-requested Express-to-Hono migration for Cloudflare Workers compatibility; preserve API contracts and frontend design)
+**Version**: 1.3.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-14 (Owner approved local IndexedDB for the personal taste profile; existing state remains in localStorage.)

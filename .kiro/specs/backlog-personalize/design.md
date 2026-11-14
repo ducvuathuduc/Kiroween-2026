@@ -1,0 +1,9 @@
+# Personal reading boost design
+
+Use deterministic article features and topic indicators for positive and negative centroids. Combine their cosine similarity difference with bounded logistic topic affinity, and clamp the resulting adjustment to −10 through +10. Expose the base signal and separate personal adjustment in the score popover; apply the adjustment only to ranking through a pure wrapper.
+
+`personalize.ts` owns pure vector, centroid and topic calculations. `storage.ts` persists a validated profile in IndexedDB and the enabled setting in existing settings; writes are serialized to prevent old writes overwriting reset. `App.tsx` loads the profile before accepting feedback, owns updates, and passes the separate adjustment to the reader and feed popovers. Selecting an unread item records a read, saving an unsaved item records a star, and an explicit reader button records a skip. Samples never teach the profile. Ranking changes only score-sorted feed ordering, not the deterministic score, semantic search, date sort or briefing.
+
+Settings offers a default-on toggle, reset, and a clearly labeled synthetic AWS-builder demo. The demo uses fixed topic examples rather than inventing real feed items or users. Reset and clear-all replace the persisted profile with an empty profile; a failed write must be reported rather than claimed saved. The profile remains local and is not sent with provider requests. Labeled controls and status messages follow the accessibility and switch guides.
+
+The prior draft algorithm and storage prototype predated this expanded design; remaining integration follows it. Passing profile props through existing components is preferred to a global event bus. Cached read IDs suppress repeated read feedback; removing a bookmark does not count as negative feedback. Explicit skips are deliberate signals, not inferred from navigation.
