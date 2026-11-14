@@ -2,13 +2,7 @@ import { Defuddle } from 'defuddle/node'
 import { Readability } from '@mozilla/readability'
 import { parseHTML } from 'linkedom'
 import TurndownService from 'turndown'
-
-export interface ExtractedArticle {
-  title: string
-  markdown: string
-  html: string
-  author: string
-}
+import type { ExtractedArticle } from '../src/lib/extract.ts'
 
 /** Parse inert HTML; third-party extraction requests are explicitly disabled. */
 export async function extractArticle(html: string, url: string, primary: typeof Defuddle = Defuddle): Promise<ExtractedArticle | null> {
