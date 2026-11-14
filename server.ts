@@ -12,6 +12,16 @@ import { a2aApp } from './server/a2a.ts'
 import { askResponse } from './server/ask.ts'
 import { extractArticle } from './server/extract.ts'
 import { DEFAULT_FEEDS } from './src/lib/feeds.ts'
+import {
+  computeFeedEtag,
+  createMemoryNewsletterStore,
+  isValidFeedId,
+  MAX_RAW_EMAIL_BYTES,
+  renderAtomFeed,
+  renderJsonFeed,
+  renderRssFeed,
+  type NewsletterFeedRecord,
+} from './src/lib/newsletter.ts'
 
 interface SummarizeRequestBody {
   title?: unknown
@@ -35,6 +45,7 @@ const ogImageCache = new Map<string, string | null>()
 const rssCache = new Map<string, { xml: string; contentType: string; expiresAt: number }>()
 const RSS_CACHE_TTL_MS = 5 * 60_000
 const MAX_RSS_BYTES = 2 * 1024 * 1024
+const newsletterStore = createMemoryNewsletterStore()
 
 function isPublicHttpUrl(raw: string): string | null {
   try {
@@ -161,12 +172,16 @@ const app = new Hono<{
 app.route('/', a2aApp)
 
 const limitJsonBody = bodyLimit({ maxSize: 192 * 1024 })
+const limitNewsletterJsonBody = bodyLimit({ maxSize: MAX_RAW_EMAIL_BYTES + 256 * 1024 })
 app.use('*', async (c, next) => {
   if (!/^application\/json(?:;|$)/i.test(c.req.header('content-type') ?? '')) {
     c.set('body', {})
     return next()
   }
-  return limitJsonBody(c, async () => {
+  const limiter = c.req.path.startsWith('/api/newsletter/')
+    ? limitNewsletterJsonBody
+    : limitJsonBody
+  return limiter(c, async () => {
     const text = await c.req.text()
     try {
       const body: unknown = text.trim() ? JSON.parse(text) : {}
@@ -363,6 +378,183 @@ app.post('/api/embed', async (c) => {
   })
   return c.json(result)
 })
+
+app.get('/api/newsletter/feeds', async (c) => {
+  const feeds = await newsletterStore.listFeeds()
+  return c.json({ feeds })
+})
+
+app.post('/api/newsletter/feeds', async (c) => {
+  const body = (c.get('body') ?? {}) as {
+    title?: unknown
+    domain?: unknown
+    id?: unknown
+    mailboxId?: unknown
+    createdAt?: unknown
+  }
+  const title = typeof body.title === 'string' ? body.title.trim() : ''
+  if (!title) {
+    return c.json({ error: 'Newsletter feed title is required.' }, 400)
+  }
+  const feed = await newsletterStore.createFeed({
+    title,
+    domain: typeof body.domain === 'string' ? body.domain : undefined,
+    id: typeof body.id === 'string' ? body.id : undefined,
+    mailboxId: typeof body.mailboxId === 'string' ? body.mailboxId : undefined,
+    createdAt: typeof body.createdAt === 'string' ? body.createdAt : undefined,
+  })
+  return c.json({ feed }, 201)
+})
+
+app.post('/api/newsletter/sync', async (c) => {
+  const body = (c.get('body') ?? {}) as { feeds?: unknown }
+  if (!Array.isArray(body.feeds)) {
+    return c.json({ error: 'feeds array is required.' }, 400)
+  }
+  let synced = 0
+  for (const rawFeed of body.feeds.slice(0, 50)) {
+    if (!rawFeed || typeof rawFeed !== 'object') continue
+    const rec = rawFeed as Partial<NewsletterFeedRecord>
+    if (
+      typeof rec.id === 'string' &&
+      isValidFeedId(rec.id) &&
+      typeof rec.mailboxId === 'string' &&
+      typeof rec.title === 'string' &&
+      typeof rec.inboundAddress === 'string' &&
+      typeof rec.createdAt === 'string' &&
+      Array.isArray(rec.entries)
+    ) {
+      await newsletterStore.syncFeed(rec as NewsletterFeedRecord)
+      synced += 1
+    }
+  }
+  return c.json({ ok: true, synced })
+})
+
+app.delete('/api/newsletter/feeds/:feedId', async (c) => {
+  const feedId = c.req.param('feedId')
+  if (!isValidFeedId(feedId)) {
+    return c.json({ error: 'Feed not found.' }, 404)
+  }
+  const deleted = await newsletterStore.deleteFeed(feedId)
+  if (!deleted) {
+    return c.json({ error: 'Feed not found.' }, 404)
+  }
+  return c.json({ ok: true, feedId })
+})
+
+app.post('/api/newsletter/feeds/:feedId/import', async (c) => {
+  const feedId = c.req.param('feedId')
+  if (!isValidFeedId(feedId)) {
+    return c.json({ error: 'Feed not found.' }, 404)
+  }
+  const contentType = (c.req.header('content-type') ?? '').toLowerCase()
+  let rawEmail: string | ArrayBuffer
+  if (contentType.includes('application/json')) {
+    const body = (c.get('body') ?? {}) as { raw?: unknown }
+    if (typeof body.raw !== 'string' || !body.raw.trim()) {
+      return c.json({ error: 'Raw email string is required.' }, 400)
+    }
+    rawEmail = body.raw
+  } else {
+    const buf = await c.req.arrayBuffer()
+    if (buf.byteLength === 0) {
+      return c.json({ error: 'Raw email payload cannot be empty.' }, 400)
+    }
+    if (buf.byteLength > MAX_RAW_EMAIL_BYTES) {
+      return c.json({ error: 'Raw email exceeds the 1 MiB size limit.' }, 413)
+    }
+    rawEmail = buf
+  }
+
+  try {
+    const result = await newsletterStore.importEmail(feedId, rawEmail)
+    if (!result) {
+      return c.json({ error: 'Feed not found.' }, 404)
+    }
+    return c.json(result, result.duplicate ? 200 : 201)
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : 'Failed to parse raw email.' },
+      400,
+    )
+  }
+})
+
+const serveNewsletterFeed = async (
+  feedId: string,
+  reqUrl: string,
+  ifNoneMatch: string | undefined,
+  format: 'rss' | 'atom' | 'json',
+): Promise<Response> => {
+  if (!isValidFeedId(feedId)) {
+    return new Response('Feed not found', { status: 404 })
+  }
+  const feed = await newsletterStore.getFeed(feedId)
+  if (!feed) {
+    return new Response('Feed not found', { status: 404 })
+  }
+  const etag = computeFeedEtag(feed)
+  if (ifNoneMatch === etag) {
+    return new Response(null, { status: 304, headers: { ETag: etag } })
+  }
+  const origin = new URL(reqUrl).origin
+  if (format === 'rss') {
+    return new Response(renderRssFeed(feed, origin), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/rss+xml; charset=utf-8',
+        ETag: etag,
+        'Cache-Control': 'no-cache',
+      },
+    })
+  }
+  if (format === 'atom') {
+    return new Response(renderAtomFeed(feed, origin), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/atom+xml; charset=utf-8',
+        ETag: etag,
+        'Cache-Control': 'no-cache',
+      },
+    })
+  }
+  return new Response(renderJsonFeed(feed, origin), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/feed+json; charset=utf-8',
+      ETag: etag,
+      'Cache-Control': 'no-cache',
+    },
+  })
+}
+
+app.get('/rss/:feedId', (c) =>
+  serveNewsletterFeed(
+    c.req.param('feedId'),
+    c.req.url,
+    c.req.header('if-none-match'),
+    'rss',
+  ),
+)
+
+app.get('/atom/:feedId', (c) =>
+  serveNewsletterFeed(
+    c.req.param('feedId'),
+    c.req.url,
+    c.req.header('if-none-match'),
+    'atom',
+  ),
+)
+
+app.get('/json/:feedId', (c) =>
+  serveNewsletterFeed(
+    c.req.param('feedId'),
+    c.req.url,
+    c.req.header('if-none-match'),
+    'json',
+  ),
+)
 
 app.all('*', (c) => c.env?.ASSETS ? c.env.ASSETS.fetch(c.req.raw) : c.notFound())
 

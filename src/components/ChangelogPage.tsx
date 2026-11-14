@@ -14,6 +14,19 @@ interface ReleaseEntry {
 
 const RELEASES: ReadonlyArray<ReleaseEntry> = [
   {
+    version: 'v0.8.0',
+    title: 'In-Browser Semantic Search, Audio Briefing, Grounded Ask, Promptfoo Evals & Newsletter Bridge',
+    summary:
+      'Completed the remaining Kiro backlog capabilities: local embeddings, browser TTS briefings, citation-guarded Ask Q&A, deterministic evals, and newsletter-to-feed bridging.',
+    changes: [
+      'Added Web Worker in-browser semantic search (all-MiniLM-L6-v2 via @huggingface/transformers) with IndexedDB vector cache and hybrid cosine/keyword ranking.',
+      'Added browser Audio Daily Briefing playback via Web Speech API and on-device IndexedDB taste boost ranking.',
+      'Wired grounded Ask Q&A (/api/ask NDJSON stream) with clickable feed citations, strict abstention policy, and full-article Defuddle extraction (/api/extract).',
+      'Added promptfoo deterministic eval gates (evals/promptfoo.yaml), A2A agent card & message/send stub, and GitHub CI + manual-only Cloudflare deploy workflows.',
+      'Built Newsletter-to-Feed bridge (src/lib/newsletter.ts, postal-mime, /rss/:feedId, /atom/:feedId, /json/:feedId, monochrome NewsletterModal, and isolated sibling Worker workers/newsletter/).',
+    ],
+  },
+  {
     version: 'v0.7.0',
     title: 'Vercel AI SDK v7 Multi-Provider Router & Semantic Cosine Search',
     summary:

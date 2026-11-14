@@ -1,11 +1,13 @@
 import { sanitizeProviderId, type AIProviderId } from './providers'
 import type { FeedItem } from './feeds'
+import type { NewsletterFeedRecord } from './newsletter'
 import { selectDailyBriefingItems, type FeedHealth } from './briefing'
 import type { PulseSnapshot } from './pulse'
 import { emptyProfile, type TasteProfile } from './personalize'
 
 export const LAST_VISIT_STORAGE_KEY = 'rr.lastVisit.v1'
 export const SETTINGS_STORAGE_KEY = 'rr.settings.v1'
+export const NEWSLETTER_STORAGE_KEY = 'rr.newsletter.v1'
 
 export type ReaderDensity = 'comfortable' | 'compact'
 export type DefaultFilter = 'all' | 'high' | 'unread' | 'saved'
@@ -89,6 +91,28 @@ export function saveStorage(key: string, value: unknown): void {
 
 export function loadSettings(): ReaderSettings {
   return sanitizeSettings(loadStorage<unknown>(SETTINGS_STORAGE_KEY, null))
+}
+
+export function loadNewsletterFeeds(): NewsletterFeedRecord[] {
+  const raw = loadStorage<unknown>(NEWSLETTER_STORAGE_KEY, [])
+  if (!Array.isArray(raw)) return []
+  return raw.filter((item): item is NewsletterFeedRecord => {
+    if (!item || typeof item !== 'object') return false
+    const rec = item as Partial<NewsletterFeedRecord>
+    return (
+      typeof rec.id === 'string' &&
+      rec.id.length > 0 &&
+      typeof rec.mailboxId === 'string' &&
+      typeof rec.title === 'string' &&
+      typeof rec.inboundAddress === 'string' &&
+      typeof rec.createdAt === 'string' &&
+      Array.isArray(rec.entries)
+    )
+  })
+}
+
+export function saveNewsletterFeeds(feeds: readonly NewsletterFeedRecord[]): void {
+  saveStorage(NEWSLETTER_STORAGE_KEY, feeds)
 }
 
 function openTasteDatabase(): Promise<IDBDatabase> {
@@ -309,6 +333,7 @@ export function clearReaderStorage(): void {
     'rr.notified',
     LAST_VISIT_STORAGE_KEY,
     SETTINGS_STORAGE_KEY,
+    NEWSLETTER_STORAGE_KEY,
   ]
   try {
     for (const k of keys) localStorage.removeItem(k)

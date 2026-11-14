@@ -9,6 +9,7 @@ import DocsPage from './components/DocsPage'
 import FeedList from './components/FeedList'
 import ItemList, { type Filter } from './components/ItemList'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
+import NewsletterModal from './components/NewsletterModal'
 import NotFoundPage from './components/NotFoundPage'
 import PrivacyPolicyPage from './components/PrivacyPolicyPage'
 import ReaderPane from './components/ReaderPane'
@@ -31,6 +32,14 @@ import {
   type FeedSource,
 } from './lib/feeds'
 import type { GeminiSummary } from './lib/kiroTask'
+import {
+  addEntryToFeed,
+  createNewsletterFeedRecord,
+  newsletterEntryToFeedItem,
+  newsletterFeedToFeedSource,
+  parseRawEmail,
+  type NewsletterFeedRecord,
+} from './lib/newsletter'
 import { downloadOpml, parseOpml } from './lib/opml'
 import { demoProfile, emptyProfile, personalBoost, recordFeedback, type Feedback, type TasteProfile } from './lib/personalize'
 import {
@@ -61,11 +70,13 @@ import {
   clearReaderStorage,
   DEFAULT_SETTINGS,
   initSessionVisitTimestamp,
+  loadNewsletterFeeds,
   loadSettings,
   loadTasteProfile,
   loadReaderSnapshot,
   loadStorage,
   recordVisitTimestamp,
+  saveNewsletterFeeds,
   saveStorage,
   saveTasteProfile,
   saveReaderSnapshot,
@@ -86,7 +97,12 @@ async function fetchMissingOgImages(
   const urls = [
     ...new Set(
       candidates
-        .filter((it) => !it.imageUrl && /^https?:\/\//i.test(it.link))
+        .filter(
+          (it) =>
+            !it.imageUrl &&
+            /^https?:\/\//i.test(it.link) &&
+            !it.link.includes('/rss/'),
+        )
         .map((it) => it.link),
     ),
   ].slice(0, 12)
@@ -210,6 +226,11 @@ export default function App() {
   const [feeds, setFeeds] = useState<FeedSource[]>(() =>
     loadStorage('rr.feeds', DEFAULT_FEEDS),
   )
+  const [newsletterFeeds, setNewsletterFeeds] = useState<
+    NewsletterFeedRecord[]
+  >(() => loadNewsletterFeeds())
+  const newsletterFeedsRef = useRef(newsletterFeeds)
+  const [newsletterModalOpen, setNewsletterModalOpen] = useState(false)
   const [activeView, setActiveView] = useState<AppRoute>(() =>
     typeof window !== 'undefined'
       ? parseRoutePath(window.location.pathname)
@@ -394,22 +415,72 @@ export default function App() {
       setLoading(true)
       setPulseLoading(true)
 
+      if (newsletterFeedsRef.current.length > 0) {
+        try {
+          await fetch('/api/newsletter/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ feeds: newsletterFeedsRef.current }),
+            signal: AbortSignal.timeout(3500),
+          })
+        } catch {
+          // Best-effort sync; local newsletter records still hydrate items below
+        }
+      }
+
       const feedsPromise = Promise.all(
         currentFeeds.map(async (feed) => {
           const checkedAt = new Date().toISOString()
           try {
             const fetched = await fetchFeed(feed)
+            const localNewsletter =
+              feed.kind === 'newsletter'
+                ? newsletterFeedsRef.current.find((nf) => nf.id === feed.id)
+                : undefined
+            const itemsForFeed =
+              fetched.length > 0 || !localNewsletter
+                ? fetched
+                : localNewsletter.entries.map((entry) =>
+                    newsletterEntryToFeedItem(
+                      entry,
+                      localNewsletter,
+                      window.location.origin,
+                    ),
+                  )
             return {
               feed,
-              items: fetched,
+              items: itemsForFeed,
               error: '',
               health: {
                 lastFetchedAt: checkedAt,
-                itemCount: fetched.length,
+                itemCount: itemsForFeed.length,
                 ok: true,
               } satisfies FeedHealth,
             }
           } catch (e) {
+            const localNewsletter =
+              feed.kind === 'newsletter'
+                ? newsletterFeedsRef.current.find((nf) => nf.id === feed.id)
+                : undefined
+            if (localNewsletter) {
+              const fallbackItems = localNewsletter.entries.map((entry) =>
+                newsletterEntryToFeedItem(
+                  entry,
+                  localNewsletter,
+                  window.location.origin,
+                ),
+              )
+              return {
+                feed,
+                items: fallbackItems,
+                error: '',
+                health: {
+                  lastFetchedAt: checkedAt,
+                  itemCount: fallbackItems.length,
+                  ok: true,
+                } satisfies FeedHealth,
+              }
+            }
             const msg = e instanceof Error ? e.message : 'Fetch failed'
             return {
               feed,
@@ -507,6 +578,10 @@ export default function App() {
   useEffect(() => {
     saveStorage('rr.feeds', feeds)
   }, [feeds])
+  useEffect(() => {
+    newsletterFeedsRef.current = newsletterFeeds
+    saveNewsletterFeeds(newsletterFeeds)
+  }, [newsletterFeeds])
   useEffect(() => {
     saveStorage('rr.read', readIds)
   }, [readIds])
@@ -780,7 +855,17 @@ export default function App() {
     null
 
   useEffect(() => {
-    if (!selectedItem || selectedItem.sample || !navigator.onLine || articles[selectedItem.id]) return
+    if (
+      !selectedItem ||
+      selectedItem.sample ||
+      !navigator.onLine ||
+      articles[selectedItem.id] ||
+      !selectedItem.link ||
+      selectedItem.link.includes('/rss/') ||
+      newsletterFeedsRef.current.some((nf) => nf.id === selectedItem.feedId)
+    ) {
+      return
+    }
     const item = selectedItem
     let active = true
     void extract(item.link).then((article) => {
@@ -1011,12 +1096,239 @@ export default function App() {
     return { ok: true }
   }
 
-  const removeFeed = (feedId: string) => {
-    const next = feeds.filter((f) => f.id !== feedId)
-    setFeeds(next)
-    setItems((prev) => prev.filter((it) => it.feedId !== feedId))
+  const removeFeed = useCallback((feedId: string) => {
+    const isNewsletter =
+      feeds.some((f) => f.id === feedId && f.kind === 'newsletter') ||
+      newsletterFeedsRef.current.some((nf) => nf.id === feedId)
+    setFeeds((prev) => prev.filter((f) => f.id !== feedId))
+    setItems((prev) => {
+      const remaining = prev.filter((it) => it.feedId !== feedId)
+      realItemsRef.current = remaining.filter((it) => !it.sample)
+      return remaining
+    })
     if (selectedFeed === feedId) setSelectedFeed('all')
-  }
+    if (isNewsletter) {
+      newsletterFeedsRef.current = newsletterFeedsRef.current.filter(
+        (nf) => nf.id !== feedId,
+      )
+      setNewsletterFeeds(newsletterFeedsRef.current)
+      setFeedHealth((prev) => {
+        if (!(feedId in prev)) return prev
+        const next = { ...prev }
+        delete next[feedId]
+        return next
+      })
+      void fetch(`/api/newsletter/feeds/${encodeURIComponent(feedId)}`, {
+        method: 'DELETE',
+      }).catch(() => {
+        // Ignore network errors on cleanup
+      })
+    }
+  }, [feeds, selectedFeed])
+
+  const handleCreateNewsletterFeed = useCallback(
+    async (
+      title: string,
+    ): Promise<{ ok: boolean; feed?: NewsletterFeedRecord; error?: string }> => {
+      let record: NewsletterFeedRecord | null = null
+      try {
+        const res = await fetch('/api/newsletter/feeds', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title }),
+          signal: AbortSignal.timeout(5000),
+        })
+        if (res.ok) {
+          const data = (await res.json()) as { feed?: NewsletterFeedRecord }
+          if (data.feed) record = data.feed
+        } else {
+          const errData = (await res.json().catch(() => null)) as {
+            error?: string
+          } | null
+          return {
+            ok: false,
+            error: errData?.error ?? `HTTP ${res.status} creating feed`,
+          }
+        }
+      } catch {
+        // Fallback to local CSPRNG creation when offline
+      }
+
+      if (!record) {
+        try {
+          record = createNewsletterFeedRecord({ title })
+        } catch (err) {
+          return {
+            ok: false,
+            error: err instanceof Error ? err.message : 'Invalid title',
+          }
+        }
+      }
+
+      const created = record
+      const source = newsletterFeedToFeedSource(created)
+      const nextNewsletterFeeds = [
+        created,
+        ...newsletterFeedsRef.current.filter((f) => f.id !== created.id),
+      ]
+      newsletterFeedsRef.current = nextNewsletterFeeds
+      setNewsletterFeeds(nextNewsletterFeeds)
+      setFeeds((prev) => [...prev.filter((f) => f.id !== created.id), source])
+      setFeedHealth((prev) => ({
+        ...prev,
+        [created.id]: {
+          lastFetchedAt: created.createdAt,
+          itemCount: created.entries.length,
+          ok: true,
+        },
+      }))
+      return { ok: true, feed: created }
+    },
+    [],
+  )
+
+  const handleDeleteNewsletterFeed = useCallback(
+    async (feedId: string) => {
+      removeFeed(feedId)
+    },
+    [removeFeed],
+  )
+
+  const handleImportNewsletterEmail = useCallback(
+    async (
+      feedId: string,
+      rawEmail: string,
+    ): Promise<{
+      ok: boolean
+      duplicate?: boolean
+      subject?: string
+      error?: string
+    }> => {
+      const existingFeed = newsletterFeedsRef.current.find(
+        (f) => f.id === feedId,
+      )
+      if (!existingFeed) {
+        return { ok: false, error: 'Newsletter feed not found.' }
+      }
+
+      let resultFeed: NewsletterFeedRecord | null = null
+      let resultEntry = null as ReturnType<typeof addEntryToFeed>['entry'] | null
+      let duplicate = false
+
+      const postImport = () =>
+        fetch(`/api/newsletter/feeds/${encodeURIComponent(feedId)}/import`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ raw: rawEmail }),
+          signal: AbortSignal.timeout(7000),
+        })
+
+      try {
+        let res = await postImport()
+        if (res.status === 404) {
+          await fetch('/api/newsletter/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ feeds: newsletterFeedsRef.current }),
+            signal: AbortSignal.timeout(4000),
+          })
+          res = await postImport()
+        }
+        const payload = (await res.json()) as {
+          feed?: NewsletterFeedRecord
+          entry?: ReturnType<typeof addEntryToFeed>['entry']
+          duplicate?: boolean
+          error?: string
+        }
+        if (!res.ok) {
+          return {
+            ok: false,
+            error: payload.error ?? `HTTP ${res.status} importing email`,
+          }
+        }
+        if (payload.feed && payload.entry) {
+          resultFeed = payload.feed
+          resultEntry = payload.entry
+          duplicate = Boolean(payload.duplicate)
+        }
+      } catch (err) {
+        if (err instanceof Error && /abort|network|fetch/i.test(err.message)) {
+          // Offline / unreachable server fallback: parse client-side cleanly
+        } else if (err instanceof Error) {
+          return { ok: false, error: err.message }
+        }
+      }
+
+      if (!resultFeed || !resultEntry) {
+        try {
+          const parsedEntry = await parseRawEmail(rawEmail, {
+            defaultTitle: existingFeed.title,
+          })
+          const localRes = addEntryToFeed(existingFeed, parsedEntry)
+          resultFeed = localRes.feed
+          resultEntry = localRes.entry
+          duplicate = localRes.duplicate
+        } catch (err) {
+          return {
+            ok: false,
+            error:
+              err instanceof Error ? err.message : 'Failed to parse raw email.',
+          }
+        }
+      }
+
+      const finalFeed = resultFeed
+      const finalEntry = resultEntry
+      const origin =
+        typeof window !== 'undefined' ? window.location.origin : ''
+      const baseItem = newsletterEntryToFeedItem(finalEntry, finalFeed, origin)
+      const breakdown = explainScore(
+        baseItem.title,
+        baseItem.description,
+        baseItem.pubDate,
+        {
+          feedId: baseItem.feedId,
+          feedTitle: baseItem.feedTitle,
+          link: baseItem.link,
+        },
+      )
+      const scoredItem: FeedItem = {
+        ...baseItem,
+        score: breakdown.score,
+        scoreDimensions: breakdown.dimensions,
+      }
+
+      const nextNewsletterFeeds = newsletterFeedsRef.current.map((f) =>
+        f.id === finalFeed.id ? finalFeed : f,
+      )
+      newsletterFeedsRef.current = nextNewsletterFeeds
+      setNewsletterFeeds(nextNewsletterFeeds)
+      setFeedHealth((prev) => ({
+        ...prev,
+        [finalFeed.id]: {
+          lastFetchedAt: new Date().toISOString(),
+          itemCount: finalFeed.entries.length,
+          ok: true,
+        },
+      }))
+      setUsingSample(false)
+      setItems((prev) => {
+        const withoutSamples = prev.filter((it) => !it.sample)
+        const next = [
+          scoredItem,
+          ...withoutSamples.filter((it) => it.id !== scoredItem.id),
+        ]
+        realItemsRef.current = next
+        return next
+      })
+      setSelectedFeed(finalFeed.id)
+      setFilter('all')
+      setSelectedId(scoredItem.id)
+
+      return { ok: true, duplicate, subject: finalEntry.subject }
+    },
+    [],
+  )
 
   const restoreDefaults = () => {
     setFeeds(DEFAULT_FEEDS)
@@ -1108,6 +1420,7 @@ export default function App() {
   const handleExportJson = () => {
     const payload = buildFullDataExport({
       feeds,
+      newsletters: newsletterFeeds,
       readIds,
       savedIds,
       summaries,
@@ -1128,7 +1441,17 @@ export default function App() {
     setSelectedFeed('all')
     setFeedHealth({})
     setPulse({ hn: [], github: [], fetchedAt: '', cached: false, errors: {} })
+    const clearedNewsletters = newsletterFeedsRef.current
+    newsletterFeedsRef.current = []
     setFeeds(DEFAULT_FEEDS)
+    setNewsletterFeeds([])
+    for (const nf of clearedNewsletters) {
+      void fetch(`/api/newsletter/feeds/${encodeURIComponent(nf.id)}`, {
+        method: 'DELETE',
+      }).catch(() => {
+        // Ignore network cleanup errors
+      })
+    }
     setReadIds([])
     setSavedIds([])
     setSummaries({})
@@ -1238,6 +1561,7 @@ export default function App() {
                   onRestoreDefaults={restoreDefaults}
                   onImportOpml={handleImportOpml}
                   onExportOpml={() => downloadOpml(feeds)}
+                  onOpenNewsletterModal={() => setNewsletterModalOpen(true)}
                   onNavigate={navigateTo}
                   onOpenShortcutsModal={() => setShortcutsOpen(true)}
                   errors={feedErrors}
@@ -1467,6 +1791,8 @@ export default function App() {
                   onExportJson={handleExportJson}
                   onExportOpml={() => downloadOpml(feeds)}
                   onClearAllData={handleClearAllData}
+                  onOpenNewsletterModal={() => setNewsletterModalOpen(true)}
+                  newsletterCount={newsletterFeeds.length}
                   onNavigate={navigateTo}
                 />
               </motion.div>
@@ -1514,6 +1840,15 @@ export default function App() {
           />
 
           <AskPanel open={askOpen} onOpenChange={setAskOpen} initialQuestion={askQuestion} provider={settings.aiProvider} />
+
+          <NewsletterModal
+            open={newsletterModalOpen}
+            onOpenChange={setNewsletterModalOpen}
+            newsletterFeeds={newsletterFeeds}
+            onCreateFeed={handleCreateNewsletterFeed}
+            onDeleteFeed={handleDeleteNewsletterFeed}
+            onImportEmail={handleImportNewsletterEmail}
+          />
 
           <KeyboardShortcutsModal
             open={shortcutsOpen}

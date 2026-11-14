@@ -1,6 +1,7 @@
 import type { FeedItem, FeedSource } from './feeds'
 import { safeHttpUrl, summarize } from './format'
 import type { GeminiSummary } from './kiroTask'
+import type { NewsletterFeedRecord } from './newsletter'
 import type { ReaderSettings } from './storage'
 
 export interface FullDataExport {
@@ -10,6 +11,7 @@ export interface FullDataExport {
   lastVisitIso: string | null
   settings: ReaderSettings
   feeds: FeedSource[]
+  newsletters?: NewsletterFeedRecord[]
   readIds: string[]
   savedIds: string[]
   summaries: Record<string, GeminiSummary>
@@ -50,6 +52,7 @@ export function formatItemAsMarkdown(
 
 export function buildFullDataExport(params: {
   feeds: FeedSource[]
+  newsletters?: NewsletterFeedRecord[]
   readIds: string[]
   savedIds: string[]
   summaries: Record<string, GeminiSummary>
@@ -64,6 +67,9 @@ export function buildFullDataExport(params: {
     lastVisitIso: params.lastVisitIso,
     settings: params.settings,
     feeds: params.feeds,
+    ...(params.newsletters && params.newsletters.length > 0
+      ? { newsletters: params.newsletters }
+      : {}),
     readIds: params.readIds,
     savedIds: params.savedIds,
     summaries: params.summaries,

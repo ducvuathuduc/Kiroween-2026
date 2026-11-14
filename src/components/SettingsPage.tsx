@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Activity, Download, RotateCcw, Sparkles, Trash2 } from 'lucide-react'
+import { Activity, Download, Mail, RotateCcw, Sparkles, Trash2 } from 'lucide-react'
 import type { AIProviderId, ProviderStatus } from '../lib/providers'
 import type { NavigableRoute } from '../lib/routes'
 import {
@@ -36,6 +36,8 @@ interface SettingsPageProps {
   onExportJson: () => string
   onExportOpml: () => void
   onClearAllData: () => void
+  onOpenNewsletterModal?: () => void
+  newsletterCount?: number
   onNavigate: (route: NavigableRoute) => void
 }
 
@@ -54,6 +56,8 @@ export default function SettingsPage({
   onExportJson,
   onExportOpml,
   onClearAllData,
+  onOpenNewsletterModal,
+  newsletterCount = 0,
   onNavigate,
 }: SettingsPageProps) {
   const [confirmClear, setConfirmClear] = useState(false)
@@ -82,16 +86,30 @@ export default function SettingsPage({
           </p>
         </div>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onNavigate('system')}
-          className="h-8 gap-1.5 border-zinc-200 text-xs shadow-none"
-        >
-          <Activity aria-hidden="true" className="size-3.5" />
-          Open Feed Health
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {onOpenNewsletterModal && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onOpenNewsletterModal}
+              className="h-8 gap-1.5 border-zinc-200 text-xs shadow-none"
+            >
+              <Mail aria-hidden="true" className="size-3.5" />
+              Newsletter bridges ({newsletterCount})
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onNavigate('system')}
+            className="h-8 gap-1.5 border-zinc-200 text-xs shadow-none"
+          >
+            <Activity aria-hidden="true" className="size-3.5" />
+            Open Feed Health
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-6">

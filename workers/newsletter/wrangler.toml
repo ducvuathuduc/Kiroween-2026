@@ -1,0 +1,17 @@
+name = "resurrected-reader-newsletter"
+main = "src/index.ts"
+compatibility_date = "2026-11-13"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+INBOUND_DOMAIN = "newsletter.resurrected-reader.invalid"
+
+# Owner-only deploy wiring (do NOT merge into root wrangler.jsonc):
+# 1. Create a KV namespace: npx wrangler kv namespace create NEWSLETTER_KV
+# 2. Uncomment and populate the binding below before deploying this sibling Worker:
+# [[kv_namespaces]]
+# binding = "NEWSLETTER_KV"
+# id = "<KV_NAMESPACE_ID>"
+#
+# 3. In Cloudflare Dashboard -> Email Routing -> Routing Rules, bind catch-all or
+#    specific recipient addresses to this Worker after configuring DNS/MX records.

@@ -29,6 +29,9 @@ export interface FeedSource {
   id: string
   title: string
   url: string
+  kind?: 'rss' | 'newsletter'
+  inboundAddress?: string
+  createdAt?: string
 }
 
 export const DEFAULT_FEEDS: FeedSource[] = [
@@ -261,8 +264,13 @@ export function parseFeed(xml: string, source: FeedSource): FeedItem[] {
       text('summary') ||
       text('content')
     const imageUrl = extractXmlElementImage(el, rawHtml)
+    const guid = text('guid') || text('id')
+    const id =
+      source.kind === 'newsletter' && guid
+        ? `${source.id}-${guid}`
+        : `${source.id}-${i}-${link || guid || text('title')}`
     return {
-      id: `${source.id}-${i}-${link || text('guid') || text('title')}`,
+      id,
       feedId: source.id,
       feedTitle: source.title,
       title: stripHtml(text('title')) || '(untitled)',
@@ -311,6 +319,10 @@ async function fetchXmlViaUrl(
  * 3. Fallback: api.allorigins.win raw XML proxy + DOMParser
  */
 export async function fetchFeed(source: FeedSource): Promise<FeedItem[]> {
+  if (source.kind === 'newsletter' || source.url.startsWith('/rss/')) {
+    return fetchXmlViaUrl(source.url, source, 5000)
+  }
+
   let primaryError: unknown
 
   try {

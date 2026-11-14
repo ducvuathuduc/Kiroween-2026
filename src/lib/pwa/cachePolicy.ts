@@ -1,7 +1,7 @@
 // These callbacks are serialized into generateSW: keep them self-contained.
 export function cacheNavigation({ url, request }: { url: URL; request: Request }): boolean {
   return url.origin === self.location.origin && request.mode === 'navigate' &&
-    !/^\/(?:api|mcp|a2a|\.well-known)(?:\/|$)/i.test(url.pathname)
+    !/^\/(?:api|mcp|a2a|rss|atom|json|\.well-known)(?:\/|$)/i.test(url.pathname)
 }
 
 export function cacheRss({ url }: { url: URL }): boolean {

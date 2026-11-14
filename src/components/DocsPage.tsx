@@ -17,6 +17,7 @@ const TOC_ITEMS = [
   { id: 'ai-providers', label: 'AI providers & semantic search' },
   { id: 'scoring-model', label: 'Deterministic scoring' },
   { id: 'opml', label: 'OPML import & export' },
+  { id: 'newsletters', label: 'Newsletter-to-feed bridge' },
   { id: 'kiro-export', label: 'Kiro task & .zip export' },
   { id: 'shortcuts', label: 'Keyboard shortcuts' },
   { id: 'mcp-tools', label: 'Reader & AWS Docs MCP' },
@@ -280,9 +281,32 @@ export default function DocsPage({
 
           <Separator />
 
+          <section id="newsletters" className="space-y-3 scroll-mt-6">
+            <h2 className="text-lg font-semibold tracking-tight text-zinc-950">
+              6. Newsletter-to-feed bridge
+            </h2>
+            <p className="text-[13.5px] leading-relaxed text-zinc-700">
+              Open the <strong>Mail</strong> icon above Subscriptions (or in{' '}
+              <strong>Settings</strong>) to create a newsletter bridge. Each
+              bridge generates an unguessable 128-bit feed ID served at{' '}
+              <code className="font-mono">/rss/:feedId</code>,{' '}
+              <code className="font-mono">/atom/:feedId</code>, and{' '}
+              <code className="font-mono">/json/:feedId</code>, decoupled from
+              its readable inbound address. Paste raw RFC 822 emails or upload{' '}
+              <code className="font-mono">.eml</code> files today — imported
+              messages are parsed with <code className="font-mono">postal-mime</code>,
+              scored via <code className="font-mono">explainScore()</code>, and
+              support AI summaries. An isolated sibling Worker (
+              <code className="font-mono">workers/newsletter/</code>) supports
+              Cloudflare Email Routing once MX/DNS rules are enabled.
+            </p>
+          </section>
+
+          <Separator />
+
           <section id="kiro-export" className="space-y-3 scroll-mt-6">
             <h2 className="text-lg font-semibold tracking-tight text-zinc-950">
-              6. Kiro task &amp; .zip spec export
+              7. Kiro task &amp; .zip spec export
             </h2>
             <p className="text-[13.5px] leading-relaxed text-zinc-700">
               Clicking <strong>→ Kiro task</strong> (or pressing{' '}
@@ -306,7 +330,7 @@ export default function DocsPage({
           <section id="shortcuts" className="space-y-3 scroll-mt-6">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold tracking-tight text-zinc-950">
-                7. Keyboard shortcuts
+                8. Keyboard shortcuts
               </h2>
               <div className="flex items-center gap-2">
                 <Button
@@ -355,7 +379,7 @@ export default function DocsPage({
 
           <section id="mcp-tools" className="space-y-3 scroll-mt-6">
             <h2 className="text-lg font-semibold tracking-tight text-zinc-950">
-              8. Reader &amp; AWS Documentation MCP tools
+              9. Reader &amp; AWS Documentation MCP tools
             </h2>
             <p className="text-[13.5px] leading-relaxed text-zinc-700">
               Connect a Streamable HTTP MCP client to this app’s{' '}
@@ -395,7 +419,7 @@ export default function DocsPage({
 
           <section id="a2a" className="space-y-3 scroll-mt-6">
             <h2 className="text-lg font-semibold tracking-tight text-zinc-950">
-              9. A2A discovery &amp; stateless task stub
+              10. A2A discovery &amp; stateless task stub
             </h2>
             <p className="text-[13.5px] leading-relaxed text-zinc-700">
               Discover the public{' '}

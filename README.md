@@ -8,15 +8,19 @@ Reading is not the job. The radar reads everything, scores every item 0–100 fo
 
 ## Quickstart
 
+> Live URL: **TBD** (pending manual Cloudflare Workers deploy — see [`docs/deployment.md`](docs/deployment.md))
+
 ```sh
 npm install
 npm run dev      # local dev server
 npm run build    # typecheck + Worker/client build → dist/worker + dist/client
 npm run start    # run the built Worker + assets locally through Wrangler
-npm run preview  # preview through Vite's Cloudflare integration
-npx tsc --noEmit # typecheck only
-npx tsx --test tests/*.test.ts # tests (network required for real-feed smoke)
+npm run preview  # preview through Vite's Cloudflare integration (port 3000)
+npx tsc --noEmit # app typecheck
+npx tsc -p tsconfig.node.json --noEmit # Worker/server typecheck
+npx tsx --test tests/*.test.ts # unit + Worker + real-feed smoke tests
 npm run lint     # oxlint
+PROMPTFOO_DISABLE_TELEMETRY=1 npx promptfoo eval --config evals/promptfoo.yaml --no-share --no-write # deterministic evals
 ```
 
 ### Amp orbs
@@ -79,10 +83,10 @@ access but no secrets. No deployment is performed by these commands.
 
 ## How it works
 
-1. **Ingest & Pulse** — same-origin `/api/rss` fetches public RSS/Atom XML for browser `DOMParser` parsing, with `api.rss2json.com` then `api.allorigins.win` fallbacks. Live **Community Pulse** uses HN Top Stories + GitHub `topic:aws` repositories. **OPML import/export** restores the Google Reader subscription workflow.
-2. **Score** — four deterministic 0–100 dimensions: **Relevance 42% / Recency 24% / Authority 18% / Novelty 16%**. `explainScore()` exposes matched cues; official-AWS authority uses parsed hostname boundaries. No LLM or API key is involved in scoring.
-3. **Triage & Summarize** — sort by score or newest; filter All / High ≥70 / Unread / Saved; use `/` search, `j`/`k` navigation, `s` summarize, `b` bookmark, `r` refresh, and `Cmd/Ctrl+K` commands. Optional server-side **Gemini → OpenAI → Anthropic → Bedrock** summaries and embedding search use configured providers. Missing credentials produce an explicit summary error and keyword search, never an invented AI result.
-4. **Act** — "→ Kiro task" opens `KiroTaskModal` (glass `Dialog`) to preview `tasks.md`, `requirements.md`, and `design.md`, copy Markdown, or download a ready-to-drop `<slug>-kiro-spec.zip` archive for `.kiro/specs/`.
+1. **Ingest, Pulse & Newsletters** — same-origin `/api/rss` fetches public RSS/Atom XML for browser `DOMParser` parsing (with `api.rss2json.com` and `api.allorigins.win` fallbacks), `/api/extract` uses `defuddle` for full-article extraction on allowed hosts, live **Community Pulse** pulls HN Top Stories + GitHub `topic:aws`, **OPML 2.0** restores Google Reader subscriptions, and the **Newsletter-to-Feed Bridge** (`src/lib/newsletter.ts` + sibling `workers/newsletter/`) turns raw `.eml`/RFC 822 emails into unguessable `/rss/:feedId`, `/atom/:feedId`, and `/json/:feedId` feeds via `postal-mime`.
+2. **Score & Personalize** — four deterministic 0–100 dimensions: **Relevance 42% / Recency 24% / Authority 18% / Novelty 16%**. `explainScore()` exposes matched cues; optional local taste feedback (`rr-personalization` IndexedDB) nudges ordering without changing the deterministic score. No LLM or API key is involved in scoring.
+3. **Search, Ask & Audio Briefing** — `/` runs quantized in-browser `all-MiniLM-L6-v2` semantic search in a Web Worker (`0.6` semantic + `0.4` keyword) with server `/api/embed` and keyword fallbacks; **Ask** (`POST /api/ask`) streams citation-enforced answers and abstains when sources are absent; **Daily Briefing** streams top-5 reads via browser Web Speech API; optional server-side **Gemini → OpenAI → Anthropic → Bedrock** summaries use configured providers cleanly.
+4. **Act & Evaluate** — "→ Kiro task" opens `KiroTaskModal` (glass `Dialog`) to preview `tasks.md`, `requirements.md`, and `design.md`, copy Markdown, or download a ready-to-drop `<slug>-kiro-spec.zip` archive for `.kiro/specs/`. Deterministic quality gates run via `evals/promptfoo.yaml` and `.github/workflows/{ci,evals}.yml`.
 
 ## Development workflow
 
@@ -105,20 +109,22 @@ development, use environment variables or a gitignored `.dev.vars` file followin
 `.env.example`. No credentials are needed for feed reading or deterministic scores.
 
 **Deployment and publishing require the owner's explicit approval.** Build,
-preview, and start commands are local only; no deploy script is provided.
+preview, and start commands are local only; `.github/workflows/deploy.yml` deploys
+only when manually dispatched (`workflow_dispatch`). See the full step-by-step
+runbook and secret checklist in [`docs/deployment.md`](docs/deployment.md).
 
 For a repeatable local Wrangler smoke test, set `READER_TEST_URL` to the running
 local server's origin and run `npx tsx --test tests/api.test.ts tests/mcp.test.ts`.
 These tests refuse AI-capable calls if that runtime has credentials configured.
 
-### Submission evidence still required
+### Submission docs & evidence still required
 
-Local verification is not a live deployment or proof of successful paid-provider
-calls. Before submission, verify a real configured provider with the owner's
-approval, record the under-three-minute demo and actual Kiro usage, and confirm
-the final public URL. The owner-supplied deadline is **05:00 Vietnam, 5 December
-2026** (22:00 UTC, 4 December); the live app must remain available through
-**29 January 2027**. No hosting continuity is claimed by this repository.
+Submission drafts live in [`docs/submission/devpost-draft.md`](docs/submission/devpost-draft.md)
+and [`docs/submission/demo-script.md`](docs/submission/demo-script.md). Local verification
+is not a live deployment or proof of successful paid-provider calls. Before submission,
+confirm the live `*.workers.dev` URL after manual deploy, verify a real configured provider
+with the owner's approval, record the under-three-minute demo, and wire DNS/Email Routing if
+activating live inbound addresses on `workers/newsletter/`.
 
 Before exposing provider-backed endpoints publicly, review access controls,
 rate limits, and provider budgets. The proxy checks hostnames and literal IPs,

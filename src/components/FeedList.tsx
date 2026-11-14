@@ -4,6 +4,7 @@ import {
   Flame,
   GitBranch,
   Layers,
+  Mail,
   MoreHorizontal,
   Plus,
   Trash2,
@@ -46,6 +47,7 @@ interface FeedListProps {
   onRestoreDefaults: () => void
   onImportOpml: (xml: string) => { ok: boolean; message: string }
   onExportOpml: () => void
+  onOpenNewsletterModal?: () => void
   onNavigate: (route: NavigableRoute) => void
   onOpenShortcutsModal: () => void
   errors: Record<string, string>
@@ -64,6 +66,7 @@ export default function FeedList({
   onRestoreDefaults,
   onImportOpml,
   onExportOpml,
+  onOpenNewsletterModal,
   onNavigate,
   onOpenShortcutsModal,
   errors,
@@ -205,6 +208,23 @@ export default function FeedList({
             className="visually-hidden"
             aria-label="Import OPML subscriptions file"
           />
+          {onOpenNewsletterModal && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="Newsletter feeds"
+                  onClick={onOpenNewsletterModal}
+                  className="text-zinc-500 hover:text-zinc-950"
+                >
+                  <Mail className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Newsletter-to-feed bridge</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -328,6 +348,11 @@ export default function FeedList({
                         <p className="mt-0.5 truncate font-mono text-[10px] text-zinc-500">
                           {feed.url}
                         </p>
+                        {feed.kind === 'newsletter' && feed.inboundAddress && (
+                          <p className="mt-0.5 truncate font-mono text-[10px] text-zinc-600">
+                            Inbound: {feed.inboundAddress}
+                          </p>
+                        )}
                         <Separator className="my-2" />
                         {health ? (
                           <dl className="space-y-1 text-[11px]">

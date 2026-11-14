@@ -1,0 +1,23 @@
+# Backlog #10 — Newsletter-to-Feed Bridge
+
+Owner-approved scope: code-only sibling Worker (`workers/newsletter/` with its own `wrangler.toml`) plus client/main-Worker manual import integration, using `postal-mime` (MIT) and the separated `FeedId` + inbound address + multi-format feed model from `leafac/kill-the-newsletter` (MIT) and `juherr/kill-the-news` (MIT). Do NOT touch DNS, Cloudflare Email Routing, domain settings, or deploy; do NOT merge KV/Email bindings into root `wrangler.jsonc`.
+
+## Requirements (EARS)
+
+1. **Unguessable Feed Identity & Decoupled Inbound Address**: When a user creates a newsletter subscription feed, the system SHALL mint a cryptographically random 128-bit unpadded base64url `feedId` (`crypto.getRandomValues`) and a separate random inbound `mailboxId` (`<mailboxId>@<inboundDomain>`), ensuring feed IDs are unguessable (never sequential) and knowing the inbound address does not reveal `/rss/:feedId`.
+2. **MIME / `.eml` Email Parsing & Deduplication**: When a raw RFC 822 email string or `.eml` file is imported (or received by the sibling Worker `email()` handler), the system SHALL parse headers (`Subject`, `From`, `Date`, `Message-ID`), multipart `text/html` and `text/plain` bodies, convert HTML to clean plain text for summary/scoring, strip XML-illegal control characters, extract a safe `http(s)` canonical article link if present, and deduplicate duplicate deliveries by `Message-ID` or content hash.
+3. **Unified `FeedSource` & Deterministic 4D Scoring**: `src/lib/feeds.ts` SHALL extend `FeedSource` with `kind?: 'rss' | 'newsletter'` (plus optional `inboundAddress` and `createdAt`). Newsletter entries SHALL convert into standard `FeedItem` objects and pass through the exact same untouched deterministic 4D `explainScore()` / `scoreItem()` rubric and optional `POST /api/summarize` TL;DR flow as RSS feeds.
+4. **Syndication Endpoints (`/rss/:feedId`, `/atom/:feedId`, `/json/:feedId`)**: Both the sibling Worker (`workers/newsletter/src/index.ts`) and local/preview main-origin Worker routes (`server.ts`, with zero new bindings in `wrangler.jsonc`) SHALL serve valid RSS 2.0 XML at `GET /rss/:feedId`, Atom 1.0 XML at `GET /atom/:feedId`, and JSON Feed 1.1 at `GET /json/:feedId` with `ETag` / `Last-Modified` / `304 Not Modified` support, returning HTTP `404` for unknown or deleted feeds.
+5. **Monochrome Admin UI & Manual Import Flow**: Using existing Vercel black-and-white Geist + `shadcn/ui` primitives, the application SHALL provide a Newsletter Bridge management panel/dialog reachable from the sidebar (`FeedList`) and Settings/System views allowing users to:
+   - Create a named newsletter feed, inspect its generated `feedId` and `/rss/:feedId` endpoint, and copy the inbound address text for future email-routing wiring.
+   - List active newsletter feeds with entry counts, view/open `/rss/:feedId`, and delete a feed cleanly (removing its items from the timeline and returning `404` on `/rss/:feedId`).
+   - Manually paste a raw email or upload a `.eml` file into a selected newsletter feed, immediately parsing the entry so it appears in the feed timeline, receives deterministic 4D scores, and supports `POST /api/summarize` / Kiro task export.
+6. **Hard DNS & Binding Isolation**: Neither `wrangler.jsonc` nor `server.ts` SHALL declare Cloudflare KV, D1, Email Routing, or DNS bindings; all Cloudflare Email Routing / KV bindings SHALL remain isolated inside `workers/newsletter/wrangler.toml`, and real inbound-email domain activation SHALL be documented explicitly as a blocked owner follow-up.
+7. **Deterministic Unit Tests (`tests/newsletter.test.ts`)**: `tests/newsletter.test.ts` SHALL verify MIME header parsing, multipart HTML→text conversion, XML control-character stripping, RSS/Atom/JSON Feed rendering, `feedId` randomness/non-sequentiality across generated batches, and deduplication using local fixtures only (zero live network calls or DNS).
+
+## Acceptance Criteria
+
+- Creating a newsletter feed yields a 22-char base64url `feedId` and a distinct copyable inbound address, and adds the `kind: 'newsletter'` source to `rr.feeds`.
+- Pasting a real AWS newsletter raw email (or uploading `.eml`) creates an entry with parsed title and body that renders in the Reader, receives a valid 0–100 4D score via `explainScore()`, and supports Summarize / Kiro export.
+- `GET /rss/:feedId` returns HTTP `200` (`application/rss+xml; charset=utf-8`) containing the imported entry; `GET /atom/:feedId` and `GET /json/:feedId` return valid Atom and JSON Feed 1.1 payloads.
+- Deleting the newsletter feed removes the source and its entries from the UI and causes `GET /rss/:feedId` to return HTTP `404`.
