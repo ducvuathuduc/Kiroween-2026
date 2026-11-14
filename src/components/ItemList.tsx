@@ -8,6 +8,10 @@ import { summarize, timeAgo } from '../lib/format'
 import type { GeminiSummary } from '../lib/kiroTask'
 import type { TasteProfile } from '../lib/personalize'
 import { getProviderDisplayName, type AIProviderId } from '../lib/providers'
+import {
+  DEFAULT_MIN_SIMILARITY,
+  type SemanticProgressState,
+} from '../lib/semanticSearch'
 import type { ReaderDensity } from '../lib/storage'
 import ItemThumbnail from './ItemThumbnail'
 import ScoreBreakdownPopover from './ScoreBreakdownPopover'
@@ -52,8 +56,13 @@ interface ItemListProps {
   lastVisitIso: string | null
   newCount: number
   density?: ReaderDensity
+  semanticEnabled?: boolean
+  onToggleSemantic?: () => void
+  semanticProgress?: SemanticProgressState
+  semanticSimilarityById?: Record<string, number>
   semanticInfo?: {
     active: boolean
+    mode: 'local' | 'server'
     provider: AIProviderId | null
   }
   onMarkAllVisited: () => void
@@ -88,6 +97,10 @@ export default function ItemList({
   lastVisitIso,
   newCount,
   density = 'comfortable',
+  semanticEnabled = true,
+  onToggleSemantic,
+  semanticProgress,
+  semanticSimilarityById,
   semanticInfo,
   onMarkAllVisited,
   onToggleSave,
@@ -137,6 +150,33 @@ export default function ItemList({
             ))}
           </TabsList>
         </Tabs>
+
+        {onToggleSemantic && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                aria-pressed={semanticEnabled}
+                aria-label={
+                  semanticEnabled
+                    ? 'Disable in-browser semantic search'
+                    : 'Enable in-browser semantic search'
+                }
+                onClick={onToggleSemantic}
+                className="shrink-0 border-zinc-200 bg-white text-zinc-600 shadow-none hover:bg-zinc-100 hover:text-zinc-950 aria-[pressed=true]:border-zinc-950 aria-[pressed=true]:bg-zinc-950 aria-[pressed=true]:text-white aria-[pressed=true]:hover:bg-zinc-800"
+              >
+                <Sparkles aria-hidden="true" className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {semanticEnabled
+                ? 'Semantic search ON (0.6 semantic + 0.4 keyword) — click for keyword-only'
+                : 'Semantic search OFF (keyword-only) — click to enable'}
+            </TooltipContent>
+          </Tooltip>
+        )}
 
         <DropdownMenu>
           <Tooltip>
@@ -191,16 +231,92 @@ export default function ItemList({
         </div>
       )}
 
-      {query.trim().length >= 2 && semanticInfo?.active && semanticInfo.provider && (
-        <div className="flex items-center justify-between border-b border-zinc-200 bg-zinc-50/80 px-3.5 py-1.5 text-[11px] text-zinc-600">
-          <span className="inline-flex items-center gap-1.5">
-            <Sparkles aria-hidden="true" className="size-3 text-zinc-700" />
-            Semantic cosine ranking ·{' '}
-            <strong className="font-medium text-zinc-950">
-              {getProviderDisplayName(semanticInfo.provider)}
-            </strong>
-          </span>
-          <span className="font-mono text-[10px] text-zinc-500">embed</span>
+      {query.trim().length >= 2 && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50/80 px-3.5 py-1.5 text-[11px] text-zinc-600"
+        >
+          {!semanticEnabled ? (
+            <>
+              <span>Keyword search only</span>
+              {onToggleSemantic && (
+                <button
+                  type="button"
+                  onClick={onToggleSemantic}
+                  className="font-medium text-zinc-950 underline-offset-2 hover:underline"
+                >
+                  Enable semantic
+                </button>
+              )}
+            </>
+          ) : semanticProgress?.status === 'downloading' &&
+            !semanticProgress.modelReady ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 font-medium text-zinc-800">
+                <Sparkles aria-hidden="true" className="size-3 text-zinc-700" />
+                model downloading…
+              </span>
+              <span className="inline-flex items-center gap-2 font-mono text-[10px] tabular-nums text-zinc-600">
+                <progress
+                  className="rr-progress h-1.5 w-20"
+                  aria-label="Semantic model download progress"
+                  max={100}
+                  value={
+                    semanticProgress.progress > 0
+                      ? semanticProgress.progress
+                      : undefined
+                  }
+                />
+                {semanticProgress.progress > 0
+                  ? `${semanticProgress.progress}%`
+                  : ''}
+              </span>
+            </>
+          ) : semanticInfo?.active ? (
+            <>
+              <span className="inline-flex items-center gap-1.5">
+                <Sparkles aria-hidden="true" className="size-3 text-zinc-700" />
+                {semanticInfo.mode === 'local' ? (
+                  <>
+                    In-browser semantic ·{' '}
+                    <strong className="font-medium text-zinc-950">
+                      all-MiniLM-L6-v2
+                    </strong>
+                  </>
+                ) : (
+                  <>
+                    Semantic fallback ·{' '}
+                    <strong className="font-medium text-zinc-950">
+                      {semanticInfo.provider
+                        ? getProviderDisplayName(semanticInfo.provider)
+                        : 'Server'}
+                    </strong>
+                  </>
+                )}
+              </span>
+              <span className="font-mono text-[10px] text-zinc-500">
+                0.6/0.4
+              </span>
+            </>
+          ) : semanticProgress?.status === 'error' ? (
+            <>
+              <span>Keyword search · local model offline/unavailable</span>
+              <span className="font-mono text-[10px] text-zinc-500">
+                fallback
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="inline-flex items-center gap-1.5">
+                <Sparkles aria-hidden="true" className="size-3 text-zinc-500" />
+                Searching…
+              </span>
+              <span className="font-mono text-[10px] text-zinc-500">
+                hybrid
+              </span>
+            </>
+          )}
         </div>
       )}
 
@@ -371,7 +487,7 @@ export default function ItemList({
                             )}
                             <span className="min-w-0 truncate">{oneLine}</span>
                           </span>
-                          <span className="mt-1.5 flex items-center gap-1.5 text-[11px] text-zinc-500">
+                          <span className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
                             <span className="min-w-0 truncate">
                               {item.feedTitle}
                               {metricLabel ? ` · ${metricLabel}` : ''} ·{' '}
@@ -386,6 +502,20 @@ export default function ItemList({
                                 · New
                               </span>
                             )}
+                            {semanticEnabled &&
+                              query.trim().length >= 2 &&
+                              typeof semanticSimilarityById?.[item.id] ===
+                                'number' &&
+                              semanticSimilarityById[item.id] >=
+                                DEFAULT_MIN_SIMILARITY && (
+                                <span
+                                  data-semantic-chip="true"
+                                  className="shrink-0 rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums text-zinc-700"
+                                >
+                                  semantic match{' '}
+                                  {semanticSimilarityById[item.id].toFixed(2)}
+                                </span>
+                              )}
                           </span>
                         </span>
                       </ListboxItem>

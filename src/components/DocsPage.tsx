@@ -200,12 +200,14 @@ export default function DocsPage({
                 resilience.
               </li>
               <li>
-                <strong>Semantic cosine search:</strong> Typing 2+ characters
-                in the search box calls{' '}
-                <code className="font-mono">POST /api/embed</code> using AI SDK{' '}
-                <code className="font-mono">embed</code> +{' '}
-                <code className="font-mono">cosineSimilarity</code>, falling
-                back automatically to local keyword search when unavailable.
+                <strong>In-browser semantic search:</strong> Typing 2+ characters
+                with Semantic enabled lazily loads quantized{' '}
+                <code className="font-mono">all-MiniLM-L6-v2</code> in a Web Worker
+                (<code className="font-mono">transformers-cache</code> + IndexedDB
+                vector store) for <code className="font-mono">0.6</code> semantic +{' '}
+                <code className="font-mono">0.4</code> keyword hybrid ranking, falling
+                back to <code className="font-mono">POST /api/embed</code> when
+                configured or local keyword matching when toggled off.
               </li>
             </ul>
           </section>

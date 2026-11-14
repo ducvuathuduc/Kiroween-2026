@@ -302,7 +302,7 @@ export default function TopBar({
               if (activeView !== 'feed') onViewChange('feed')
             }}
             placeholder="Filter…"
-            className="h-8 border-zinc-200 bg-white/80 pr-7 pl-8 text-[13px] shadow-none placeholder:text-zinc-400 focus-visible:border-zinc-950 focus-visible:ring-0"
+            className="h-8 border-zinc-200 bg-white/80 pr-7 pl-8 text-[13px] shadow-none placeholder:text-zinc-400 focus-visible:border-zinc-950 focus-visible:ring-0 [&::-webkit-search-cancel-button]:appearance-none"
           />
           {query ? (
             <Button

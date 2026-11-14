@@ -1,0 +1,9 @@
+description: Resurrected Reader deterministic CI eval gate (zero LLM calls, zero keys)
+
+prompts:
+  - file://prompts/summaryPrompt.mjs
+
+providers:
+  - file://providers/deterministicEvalProvider.mjs
+
+tests: file://tests/deterministicTests.mjs

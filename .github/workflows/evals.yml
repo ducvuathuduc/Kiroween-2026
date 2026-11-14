@@ -16,6 +16,10 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      PROMPTFOO_DISABLE_TELEMETRY: '1'
+      PROMPTFOO_DISABLE_UPDATE: 'true'
+      PROMPTFOO_DISABLE_REMOTE_GENERATION: 'true'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -26,16 +30,19 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
-      - name: Gate deterministic scoring and radar contracts (no model calls)
-        run: npx tsx --test tests/scoring.test.ts tests/radar.test.ts
+      - name: Gate deterministic scoring, radar, semantic, and eval contracts (no model calls)
+        run: npx tsx --test tests/scoring.test.ts tests/radar.test.ts tests/semanticSearch.test.ts tests/evals.test.ts
+      - name: Gate promptfoo deterministic summary guardrails and golden scoring
+        run: |
+          test -x node_modules/.bin/promptfoo
+          node_modules/.bin/promptfoo eval --config evals/promptfoo.yaml --no-share --no-write
       - name: Report eval coverage honestly
         if: always()
         run: |
           {
             echo '## Deterministic eval coverage'
-            echo 'Scoring/radar test outcome is recorded in the gate above; these tests make no model calls.'
-            echo 'Summary length, invented-URL, golden-score, and LLM-rubric harness checks: **NOT RUN — pending feature #8**.'
-            echo 'No LLM pass rate or summary-quality improvement is claimed by this workflow.'
+            echo '- Unit gates (`scoring`, `radar`, `semanticSearch`, `evals`) and `evals/promptfoo.yaml` (summary <=100 words, zero invented URLs, golden 4D scoring) ran with zero model calls.'
+            echo '- Advisory LLM-rubric faithfulness/utility checks run separately in `nightly-judge` (`evals/promptfoo.judge.yaml`) only when explicitly opted in.'
           } >> "$GITHUB_STEP_SUMMARY"
 
   nightly-judge:

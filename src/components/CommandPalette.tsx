@@ -14,6 +14,7 @@ import {
   Search,
   Settings,
   Shield,
+  Sparkles,
 } from 'lucide-react'
 import {
   searchCommandTargets,
@@ -21,6 +22,13 @@ import {
   type CommandViewId,
 } from '../lib/briefing'
 import type { FeedItem, FeedSource } from '../lib/feeds'
+import type { AIProviderId } from '../lib/providers'
+import {
+  isLocalSemanticSupported,
+  rankItemsHybrid,
+  type SemanticProgressState,
+  type SemanticSearchClient,
+} from '../lib/semanticSearch'
 import {
   Dialog,
   DialogContent,
@@ -40,6 +48,12 @@ interface CommandPaletteProps {
   onSelectFeed: (feedId: string) => void
   onSelectItem: (itemId: string) => void
   onOpenAsk?: (question: string) => void
+  semanticEnabled?: boolean
+  onToggleSemantic?: () => void
+  semanticClient?: SemanticSearchClient
+  semanticProgress?: SemanticProgressState
+  hasServerEmbedProvider?: boolean
+  preferredProvider?: AIProviderId
 }
 
 function targetIcon(target: CommandTarget) {
@@ -68,15 +82,129 @@ export default function CommandPalette({
   onSelectFeed,
   onSelectItem,
   onOpenAsk,
+  semanticEnabled = false,
+  onToggleSemantic,
+  semanticClient,
+  semanticProgress,
+  hasServerEmbedProvider = false,
+  preferredProvider = 'gemini',
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [highlighted, setHighlighted] = useState(0)
+  const [paletteScores, setPaletteScores] = useState<{
+    query: string
+    scores: Record<string, number>
+  } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const itemsRef = useRef(items)
+  useEffect(() => {
+    itemsRef.current = items
+  }, [items])
+  const itemCount = items.length
 
-  const results = useMemo(
-    () => searchCommandTargets({ feeds, items, query, limit: 14 }),
-    [feeds, items, query],
-  )
+  useEffect(() => {
+    const clean = query.trim().toLowerCase()
+    const currentItems = itemsRef.current
+    if (!open || !semanticEnabled || clean.length < 2 || currentItems.length === 0) {
+      return
+    }
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      if (semanticClient && isLocalSemanticSupported()) {
+        void semanticClient
+          .search(clean, currentItems, controller.signal)
+          .then((res) => {
+            if (controller.signal.aborted) return
+            if (Object.keys(res.scores).length > 0) {
+              setPaletteScores({ query: clean, scores: res.scores })
+            }
+          })
+          .catch(() => {
+            // fallback handled below if server provider is available
+          })
+      }
+
+      if (
+        (!semanticClient ||
+          !isLocalSemanticSupported() ||
+          !semanticClient.getState().modelReady) &&
+        hasServerEmbedProvider &&
+        navigator.onLine
+      ) {
+        const docs = currentItems.slice(0, 60).map((it) => ({
+          id: it.id,
+          text: `${it.title}\n${it.description.slice(0, 400)}`,
+        }))
+        void fetch('/api/embed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            query: clean,
+            documents: docs,
+            provider: preferredProvider,
+          }),
+        })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data: { available?: boolean; scores?: Record<string, number> } | null) => {
+            if (controller.signal.aborted) return
+            if (data?.available && data.scores) {
+              setPaletteScores((prev) =>
+                prev && prev.query === clean ? prev : { query: clean, scores: data.scores ?? {} },
+              )
+            }
+          })
+          .catch(() => {
+            /* ignore fallback errors */
+          })
+      }
+    }, 200)
+
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [
+    open,
+    query,
+    semanticEnabled,
+    itemCount,
+    semanticClient,
+    hasServerEmbedProvider,
+    preferredProvider,
+  ])
+
+  const results = useMemo(() => {
+    const base = searchCommandTargets({ feeds, items, query, limit: 14 })
+    const clean = query.trim().toLowerCase()
+    if (
+      !semanticEnabled ||
+      clean.length < 2 ||
+      !paletteScores ||
+      paletteScores.query !== clean
+    ) {
+      return base
+    }
+
+    const nonItemTargets = base.filter((t) => t.kind !== 'item')
+    const semanticItems = rankItemsHybrid(items, paletteScores.scores, clean)
+      .slice(0, 10)
+      .map((entry): CommandTarget => ({
+        id: `cmd-item-${entry.item.id}`,
+        kind: 'item',
+        label: entry.item.title,
+        subtitle: entry.item.feedTitle,
+        badge: entry.isSemanticMatch
+          ? `semantic match ${entry.similarity.toFixed(2)}`
+          : `${entry.item.score ?? 0}`,
+        itemId: entry.item.id,
+        matchScore: 200 + entry.combinedScore * 800,
+      }))
+
+    return [...nonItemTargets, ...semanticItems]
+      .sort((a, b) => b.matchScore - a.matchScore)
+      .slice(0, 14)
+  }, [feeds, items, query, semanticEnabled, paletteScores])
 
   const safeIndex =
     results.length === 0 ? 0 : Math.min(highlighted, results.length - 1)
@@ -91,6 +219,7 @@ export default function CommandPalette({
     if (!next) {
       setQuery('')
       setHighlighted(0)
+      setPaletteScores(null)
     }
     onOpenChange(next)
   }
@@ -110,7 +239,7 @@ export default function CommandPalette({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="top-[22%] translate-y-0 gap-0 overflow-hidden border-zinc-200/90 bg-white/90 p-0 shadow-[0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl sm:max-w-xl"
+        className="top-[22%] flex translate-y-0 flex-col gap-0 overflow-hidden border-zinc-200/90 bg-white/90 p-0 shadow-[0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl sm:max-w-xl"
       >
         <DialogHeader className="visually-hidden">
           <DialogTitle>Command palette</DialogTitle>
@@ -119,7 +248,7 @@ export default function CommandPalette({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-2.5 border-b border-zinc-200 px-3.5 py-2.5">
+        <div className="flex min-w-0 items-center gap-2.5 border-b border-zinc-200 px-3.5 py-2.5">
           <Search aria-hidden="true" className="size-4 shrink-0 text-zinc-400" />
           <Input
             ref={inputRef}
@@ -155,14 +284,58 @@ export default function CommandPalette({
               }
             }}
             placeholder="Jump to view, feed, or article…"
-            className="h-7 border-0 bg-transparent px-0 text-[13px] shadow-none focus-visible:ring-0"
+            className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-[13px] shadow-none focus-visible:ring-0 [&::-webkit-search-cancel-button]:appearance-none"
           />
+          {onToggleSemantic && (
+            <button
+              type="button"
+              aria-pressed={semanticEnabled}
+              aria-label={
+                semanticEnabled
+                  ? 'Disable semantic search in command palette'
+                  : 'Enable semantic search in command palette'
+              }
+              onClick={onToggleSemantic}
+              className="inline-flex shrink-0 items-center gap-1 rounded border border-zinc-200 bg-white px-2 py-0.5 font-mono text-[10px] font-medium text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-950 aria-[pressed=true]:border-zinc-950 aria-[pressed=true]:bg-zinc-950 aria-[pressed=true]:text-white"
+            >
+              <Sparkles aria-hidden="true" className="size-2.5" />
+              Semantic
+            </button>
+          )}
           <kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500">
             Esc
           </kbd>
         </div>
 
-        <ScrollArea className="max-h-80">
+        {semanticEnabled &&
+          query.trim().length >= 2 &&
+          semanticProgress?.status === 'downloading' &&
+          !semanticProgress.modelReady && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-3.5 py-1.5 text-[11px] text-zinc-600"
+            >
+              <span>model downloading…</span>
+              <span className="inline-flex items-center gap-2 font-mono text-[10px] tabular-nums">
+                <progress
+                  className="rr-progress h-1.5 w-20"
+                  aria-label="Semantic model download progress"
+                  max={100}
+                  value={
+                    semanticProgress.progress > 0
+                      ? semanticProgress.progress
+                      : undefined
+                  }
+                />
+                {semanticProgress.progress > 0
+                  ? `${semanticProgress.progress}%`
+                  : ''}
+              </span>
+            </div>
+          )}
+
+        <ScrollArea className="max-h-80 min-w-0 overflow-hidden [&_[data-slot=scroll-area-viewport]]:max-h-80 [&_[data-slot=scroll-area-viewport]>div]:!block">
           {results.length === 0 ? (
             <p className="px-4 py-8 text-center text-xs text-zinc-500">
               No matching feeds or articles for “{query.trim()}”.

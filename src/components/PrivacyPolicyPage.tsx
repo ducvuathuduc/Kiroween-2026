@@ -126,10 +126,13 @@ export default function PrivacyPolicyPage({
             When you summarize an article (<kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[11px]">s</kbd>),
             only the article’s title, feed name, canonical URL, and excerpt (up
             to 5,000 characters) are routed through Vercel AI SDK v7. When
-            searching (<kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[11px]">/</kbd>),
-            only the query and public article titles/snippets are embedded for
-            cosine similarity ranking; if no embedding key is configured, search
-            stays 100% browser-local via keyword matching.
+            searching (<kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[11px]">/</kbd> or{' '}
+            <kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[11px]">⌘K</kbd>),
+            in-browser semantic search runs locally via a Web Worker (caching model
+            weights in <code className="font-mono">transformers-cache</code> and
+            384-dim vectors in IndexedDB <code className="font-mono">rr-semantic</code>);
+            <code className="font-mono">POST /api/embed</code> is used only as a
+            fallback when local WASM is unavailable or still downloading.
           </p>
           <p>
             The stateless <code className="font-mono">/mcp</code> endpoint serves

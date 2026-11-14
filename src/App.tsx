@@ -35,7 +35,6 @@ import { downloadOpml, parseOpml } from './lib/opml'
 import { demoProfile, emptyProfile, personalBoost, recordFeedback, type Feedback, type TasteProfile } from './lib/personalize'
 import {
   DEFAULT_PROVIDER_STATUSES,
-  rankItemsByCosine,
   sanitizeProviderId,
   type AIProviderId,
   type ProviderStatus,
@@ -51,6 +50,12 @@ import {
 } from './lib/routes'
 import { getSampleItems } from './lib/sampleData'
 import { applyPersonalBoost, explainScore } from './lib/scoring'
+import {
+  createSemanticSearchClient,
+  isLocalSemanticSupported,
+  rankItemsHybrid,
+  type SemanticProgressState,
+} from './lib/semanticSearch'
 import {
   cachedCoverImages,
   clearReaderStorage,
@@ -265,9 +270,20 @@ export default function App() {
   )
   const [semanticResult, setSemanticResult] = useState<{
     query: string
+    mode: 'local' | 'server'
     provider: AIProviderId | null
     scores: Record<string, number>
   } | null>(null)
+  const semanticClient = useMemo(() => createSemanticSearchClient(), [])
+  const [semanticProgress, setSemanticProgress] =
+    useState<SemanticProgressState>(() => semanticClient.getState())
+  useEffect(() => {
+    const unsubscribe = semanticClient.subscribe(setSemanticProgress)
+    return () => {
+      unsubscribe()
+      semanticClient.dispose()
+    }
+  }, [semanticClient])
   const searchInputRef = useRef<HTMLInputElement>(null)
   const readerHeadingRef = useRef<HTMLHeadingElement>(null)
   const realItemsRef = useRef<FeedItem[]>([])
@@ -581,92 +597,147 @@ export default function App() {
       })
   }, [activeSourceItems, selectedFeed, filter, readIds, savedIds])
 
+  const feedAndTabItemsRef = useRef(feedAndTabItems)
+  useEffect(() => {
+    feedAndTabItemsRef.current = feedAndTabItems
+  }, [feedAndTabItems])
+  const feedAndTabSignature = `${feedAndTabItems.length}:${feedAndTabItems[0]?.id ?? ''}:${selectedFeed}:${filter}`
+
   useEffect(() => {
     const cleanQuery = query.trim().toLowerCase()
-    if (cleanQuery.length < 2 || !hasEmbeddingProvider || feedAndTabItems.length === 0) {
+    const currentItems = feedAndTabItemsRef.current
+    if (
+      !settings.semanticSearchEnabled ||
+      cleanQuery.length < 2 ||
+      currentItems.length === 0
+    ) {
       setSemanticResult(null)
       return
     }
 
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      const docs = feedAndTabItems.slice(0, 60).map((it) => ({
-        id: it.id,
-        text: `${it.title}\n${it.description.slice(0, 400)}`,
-      }))
+      const latestItems = feedAndTabItemsRef.current
+      const localSupported = isLocalSemanticSupported()
+      let localResolved = false
 
-      void fetch('/api/embed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          query: cleanQuery,
-          documents: docs,
-          provider: settings.aiProvider,
-        }),
-      })
-        .then((res) => (res.ok ? res.json() : null))
-        .then(
-          (
-            data: {
-              available?: boolean
-              provider?: AIProviderId | null
-              scores?: Record<string, number>
-            } | null,
-          ) => {
+      if (localSupported) {
+        void semanticClient
+          .search(cleanQuery, latestItems, controller.signal)
+          .then((res) => {
             if (controller.signal.aborted) return
-            if (
-              data?.available &&
-              data.scores &&
-              Object.keys(data.scores).length > 0
-            ) {
+            if (Object.keys(res.scores).length > 0) {
+              localResolved = true
               setSemanticResult({
                 query: cleanQuery,
-                provider: data.provider ? sanitizeProviderId(data.provider) : null,
-                scores: data.scores,
+                mode: 'local',
+                provider: null,
+                scores: res.scores,
               })
-            } else {
-              setSemanticResult(null)
             }
-          },
-        )
-        .catch(() => {
-          if (!controller.signal.aborted) setSemanticResult(null)
+          })
+          .catch(() => {
+            // Fall back cleanly to server embedding (if available) or keyword matching
+          })
+      }
+
+      const needsServerFallback =
+        (!localSupported || !semanticClient.getState().modelReady) &&
+        hasEmbeddingProvider &&
+        navigator.onLine
+
+      if (needsServerFallback) {
+        const docs = latestItems.slice(0, 60).map((it) => ({
+          id: it.id,
+          text: `${it.title}\n${it.description.slice(0, 400)}`,
+        }))
+
+        void fetch('/api/embed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            query: cleanQuery,
+            documents: docs,
+            provider: settings.aiProvider,
+          }),
         })
-    }, 280)
+          .then((res) => (res.ok ? res.json() : null))
+          .then(
+            (
+              data: {
+                available?: boolean
+                provider?: AIProviderId | null
+                scores?: Record<string, number>
+              } | null,
+            ) => {
+              if (controller.signal.aborted || localResolved) return
+              if (
+                data?.available &&
+                data.scores &&
+                Object.keys(data.scores).length > 0
+              ) {
+                setSemanticResult({
+                  query: cleanQuery,
+                  mode: 'server',
+                  provider: data.provider
+                    ? sanitizeProviderId(data.provider)
+                    : null,
+                  scores: data.scores,
+                })
+              }
+            },
+          )
+          .catch(() => {
+            /* ignore fallback errors */
+          })
+      }
+    }, 240)
 
     return () => {
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [query, hasEmbeddingProvider, feedAndTabItems, settings.aiProvider])
+  }, [
+    query,
+    settings.semanticSearchEnabled,
+    settings.aiProvider,
+    hasEmbeddingProvider,
+    feedAndTabSignature,
+    semanticClient,
+  ])
 
   const semanticActiveForQuery = useMemo(() => {
     const q = query.trim().toLowerCase()
     return (
+      settings.semanticSearchEnabled &&
       q.length >= 2 &&
       semanticResult !== null &&
       semanticResult.query === q &&
       Object.keys(semanticResult.scores).length > 0
     )
-  }, [query, semanticResult])
+  }, [settings.semanticSearchEnabled, query, semanticResult])
 
   const visibleItems = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (q !== '' && semanticActiveForQuery && semanticResult) {
-      return rankItemsByCosine(
+      return rankItemsHybrid(
         feedAndTabItems,
         semanticResult.scores,
-        (it) =>
-          it.title.toLowerCase().includes(q) ||
-          it.description.toLowerCase().includes(q),
-      )
+        q,
+      ).map((entry) => entry.item)
     }
 
     const rankedScores = new Map<string, number>()
     if (sortBy === 'score') {
       for (const item of feedAndTabItems) {
-        rankedScores.set(item.id, applyPersonalBoost(item.score ?? 0, settings.personalBoostEnabled ? personalBoost(item, taste) : 0))
+        rankedScores.set(
+          item.id,
+          applyPersonalBoost(
+            item.score ?? 0,
+            settings.personalBoostEnabled ? personalBoost(item, taste) : 0,
+          ),
+        )
       }
     }
     return feedAndTabItems
@@ -688,7 +759,20 @@ export default function App() {
           new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
         )
       })
-  }, [feedAndTabItems, query, sortBy, semanticActiveForQuery, semanticResult, settings.personalBoostEnabled, taste])
+  }, [
+    feedAndTabItems,
+    query,
+    sortBy,
+    semanticActiveForQuery,
+    semanticResult,
+    settings.personalBoostEnabled,
+    taste,
+  ])
+
+  const semanticSimilarityById = useMemo(
+    () => (semanticActiveForQuery && semanticResult ? semanticResult.scores : undefined),
+    [semanticActiveForQuery, semanticResult],
+  )
 
   const selectedItem =
     visibleItems.find((it) => it.id === selectedId) ??
@@ -1035,6 +1119,7 @@ export default function App() {
 
   const handleClearAllData = () => {
     clearReaderStorage()
+    semanticClient.resetMemoryCache()
     updateTaste(emptyProfile(), 'Taste reset on this device.')
     realItemsRef.current = []
     setItems([])
@@ -1179,8 +1264,18 @@ export default function App() {
                   lastVisitIso={lastVisitIso}
                   newCount={visibleNewCount}
                   density={settings.density}
+                  semanticEnabled={settings.semanticSearchEnabled}
+                  onToggleSemantic={() =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      semanticSearchEnabled: !prev.semanticSearchEnabled,
+                    }))
+                  }
+                  semanticProgress={semanticProgress}
+                  semanticSimilarityById={semanticSimilarityById}
                   semanticInfo={{
                     active: semanticActiveForQuery,
+                    mode: semanticResult?.mode ?? 'local',
                     provider: semanticResult?.provider ?? null,
                   }}
                   onMarkAllVisited={handleMarkAllVisited}
@@ -1405,6 +1500,17 @@ export default function App() {
             }}
             onSelectItem={openItemInReader}
             onOpenAsk={(question) => { setAskQuestion(question); setAskOpen(true) }}
+            semanticEnabled={settings.semanticSearchEnabled}
+            onToggleSemantic={() =>
+              setSettings((prev) => ({
+                ...prev,
+                semanticSearchEnabled: !prev.semanticSearchEnabled,
+              }))
+            }
+            semanticClient={semanticClient}
+            semanticProgress={semanticProgress}
+            hasServerEmbedProvider={hasEmbeddingProvider}
+            preferredProvider={settings.aiProvider}
           />
 
           <AskPanel open={askOpen} onOpenChange={setAskOpen} initialQuestion={askQuestion} provider={settings.aiProvider} />

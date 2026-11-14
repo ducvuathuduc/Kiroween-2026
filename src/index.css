@@ -117,6 +117,58 @@ body {
   }
 }
 
+.rr-progress {
+  appearance: none;
+  border: 0 solid;
+  overflow: clip;
+  border-radius: 9999px;
+  background-color: #e4e4e7;
+  container-type: inline-size;
+  --progress-bar-indeterminate-size: 35%;
+  --progress-bar-indeterminate-animation-duration: 1.4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rr-progress {
+    --progress-bar-indeterminate-animation-duration: 10s;
+  }
+}
+
+.rr-progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+.rr-progress::-webkit-progress-value {
+  background-color: #09090b;
+  border-radius: 9999px;
+  transition: inline-size 0.2s ease-out;
+  animation: var(--progress-bar-animation, revert-rule);
+}
+
+.rr-progress::-moz-progress-bar {
+  background-color: #09090b;
+  border-radius: 9999px;
+  transition: inline-size 0.2s ease-out;
+  animation: var(--progress-bar-animation, revert-rule);
+}
+
+.rr-progress:indeterminate {
+  --progress-bar-animation: rr-progress-indeterminate var(--progress-bar-indeterminate-animation-duration) infinite linear;
+}
+
+@keyframes rr-progress-indeterminate {
+  from, to {
+    inline-size: var(--progress-bar-indeterminate-size);
+    margin-right: auto;
+  }
+  from {
+    translate: -100%;
+  }
+  to {
+    translate: 100cqi;
+  }
+}
+
 /* Custom reading typography for sanitized RSS HTML excerpts (no @tailwindcss/typography) */
 .feed-excerpt h2,
 .feed-excerpt h3,

@@ -1,0 +1,194 @@
+[
+  {
+    "id": "kiro-multi-step-spec",
+    "title": "Kiro agents now orchestrate multi-step AWS builds from a single spec",
+    "feedTitle": "AWS News Blog",
+    "link": "https://aws.amazon.com/blogs/aws/",
+    "content": "Kiro now turns a written spec into a working AWS deployment: specs drive requirements, design and tasks, and agents execute them against your account. This post walks through a full agent-led build of a serverless API, including the spec files, the hooks that guard each step, and where the human still reviews. For builders shipping with AI agents, the workflow matters more than the model.",
+    "candidateSummary": {
+      "tldr": "Kiro converts written specs into executed AWS deployments by coordinating requirements, design, and task lists. Automated hooks guard each build step while keeping human review in the loop.",
+      "takeaways": [
+        "Written spec files drive requirements, architecture design, and execution tasks.",
+        "Automated hooks validate guardrails at each agent execution step.",
+        "Structured workflow matters more than raw model selection for reliable delivery."
+      ],
+      "whyMatters": "AWS builders can adopt spec-driven Kiro tasks to ship serverless APIs with repeatable checkpoints."
+    }
+  },
+  {
+    "id": "small-models-strict-evals",
+    "title": "Building agentic coding workflows with small models and strict evals",
+    "feedTitle": "AWS Machine Learning Blog",
+    "link": "https://aws.amazon.com/blogs/machine-learning/",
+    "content": "Small models win when the workflow is strict: deterministic tools, tight evals, and a spec the agent cannot drift from. This post compares agent harnesses on real coding tasks, shows where large models waste budget, and gives a checklist for production agentic systems. Includes failure modes and how to measure them.",
+    "candidateSummary": {
+      "tldr": "Small models outperform unconstrained large models when paired with deterministic tools, strict specs, and tight evaluations. Benchmarking harnesses reveals where oversized models waste budget.",
+      "takeaways": [
+        "Deterministic tool contracts prevent agent drift across coding steps.",
+        "Tight evaluation harnesses expose cost waste in large-model loops.",
+        "Production checklists should track concrete failure modes explicitly."
+      ],
+      "whyMatters": "Builders can cut inference spend while improving reliability by gating small-model agents with strict evals."
+    }
+  },
+  {
+    "id": "resurrected-reader-hn",
+    "title": "Show HN: Resurrected Reader — Google Reader reborn as a reading radar",
+    "feedTitle": "Hacker News",
+    "link": "https://news.ycombinator.com/",
+    "content": "Google Reader died in 2013. This project brings it back as a radar: every item scored for signal, high-signal reads turned into Kiro tasks. Built for Kiroween 2026. The discussion covers whether RSS can still win, what a modern reader should do that the old one never did, and why reading without action is just hoarding.",
+    "candidateSummary": {
+      "tldr": "Resurrected Reader revives Google Reader's three-pane triage for RSS feeds with deterministic signal scoring and Kiro task exports. Built for Kiroween 2026, it connects reading directly to action.",
+      "takeaways": [
+        "Scores incoming RSS items for engineering signal instead of raw chronology.",
+        "Exports high-signal articles straight into structured Kiro task bundles.",
+        "Focuses modern RSS workflows on actionable follow-through rather than hoarding."
+      ],
+      "whyMatters": "Builders can turn daily AWS and Hacker News feeds into prioritized engineering tasks."
+    }
+  },
+  {
+    "id": "security-baseline-ai-apps",
+    "title": "Security baseline for AI-built apps: what to check before you ship",
+    "feedTitle": "AWS News Blog",
+    "link": "https://aws.amazon.com/blogs/aws/",
+    "content": "AI agents write code fast, including insecure code fast. This checklist covers secrets handling, dependency review, input validation, and the IAM least-privilege baseline every AI-built app should pass before production. Short, concrete, and built for teams shipping with agents in the loop.",
+    "candidateSummary": {
+      "tldr": "AI coding speed introduces security risk unless teams enforce pre-ship checks. The checklist covers secrets handling, dependency review, input validation, and IAM least-privilege baselines.",
+      "takeaways": [
+        "Audit secrets handling and environment configuration before deployment.",
+        "Verify third-party dependencies and input validation on every boundary.",
+        "Enforce least-privilege IAM policies across agent-generated infrastructure."
+      ],
+      "whyMatters": "Engineering teams with agents in the loop get a concrete pre-production security gate."
+    }
+  },
+  {
+    "id": "demo-to-production-ai",
+    "title": "From demo to production: the missing middle of AI startup products",
+    "feedTitle": "AWS Machine Learning Blog",
+    "link": "https://aws.amazon.com/blogs/machine-learning/",
+    "content": "Most AI demos die in the gap between a good prompt and a product someone pays for. This post maps that gap: evals, cost control, onboarding, and the distribution work nobody demos. Written for founders building AI products on AWS, with numbers from real launches.",
+    "candidateSummary": {
+      "tldr": "Shipping a reliable AI product requires closing the operational gap between prompt demos and production systems. Real launches hinge on evals, cost controls, onboarding, and distribution.",
+      "takeaways": [
+        "Pair prompts with automated evals before opening traffic to customers.",
+        "Instrument per-request cost controls across inference workloads.",
+        "Invest equally in onboarding flows and distribution beyond demo polish."
+      ],
+      "whyMatters": "Founders building on AWS get a realistic checklist for turning prototypes into paid products."
+    }
+  },
+  {
+    "id": "sagemaker-hyperpod-flywheel",
+    "title": "Build a model improvement flywheel with Amazon SageMaker HyperPod Data Capture",
+    "feedTitle": "AWS Machine Learning Blog",
+    "link": "https://aws.amazon.com/blogs/machine-learning/build-a-model-improvement-flywheel-with-amazon-sagemaker-hyperpod-data-capture/",
+    "content": "Foundation models deployed on Amazon SageMaker HyperPod meet inputs that no pre-curated dataset covers. SageMaker HyperPod Data Capture records live inference inputs and outputs to Amazon S3 at three tiers with minimal latency impact, letting teams query traffic in Amazon Athena and fine-tune via LoRA on the same cluster.",
+    "candidateSummary": {
+      "tldr": "Amazon SageMaker HyperPod Data Capture logs live inference payloads to Amazon S3 across three tiers with minimal latency overhead. Teams query captures via Amazon Athena and run LoRA fine-tuning on-cluster.",
+      "takeaways": [
+        "Records production inference inputs and outputs directly to S3.",
+        "Uses Athena SQL policies to isolate blind spots and curate training sets.",
+        "Closes the loop with on-cluster LoRA fine-tuning via the training operator."
+      ],
+      "whyMatters": "ML builders can fix production model blind spots without adding serving latency or external pipelines."
+    }
+  },
+  {
+    "id": "bedrock-managed-kb-agent",
+    "title": "Migrate to Amazon Bedrock Managed Knowledge Base with your coding agent",
+    "feedTitle": "AWS Machine Learning Blog",
+    "link": "https://aws.amazon.com/blogs/machine-learning/",
+    "content": "Teams maintaining custom vector ingestion pipelines can migrate retrieval workloads to Amazon Bedrock Managed Knowledge Base using coding agents guided by schema and IAM specs. Managed chunking, OpenSearch Serverless syncing, and role-scoped retrieval reduce operational maintenance while preserving citation boundaries.",
+    "candidateSummary": {
+      "tldr": "Builders can migrate bespoke RAG ingestion stacks to Amazon Bedrock Managed Knowledge Base using spec-guided coding agents. Managed chunking and OpenSearch syncing cut operational overhead while keeping citation controls.",
+      "takeaways": [
+        "Replaces custom embedding and sync scripts with managed Knowledge Base connectors.",
+        "Preserves IAM role boundaries and document-level citation metadata.",
+        "Coding agents accelerate migration when driven by explicit infrastructure specs."
+      ],
+      "whyMatters": "AWS teams eliminate custom vector ETL upkeep while keeping strict grounding and access controls."
+    }
+  },
+  {
+    "id": "bedrock-fine-grained-access",
+    "title": "Fine-grained access control for Amazon Bedrock Managed Knowledge Base tools",
+    "feedTitle": "AWS Machine Learning Blog",
+    "link": "https://aws.amazon.com/blogs/machine-learning/",
+    "content": "Enterprises wiring AI agents to internal corpora need user-scoped retrieval permissions. Passing caller identity context into Amazon Bedrock Knowledge Base tool calls ensures agents only retrieve documents the invoking principal is authorized to read, preventing cross-tenant data leakage.",
+    "candidateSummary": {
+      "tldr": "Amazon Bedrock Knowledge Base tools support caller-scoped access control so agents retrieve only documents authorized for the invoking user. Enforcing identity boundaries at retrieval blocks cross-tenant data leaks.",
+      "takeaways": [
+        "Propagates principal identity context into Knowledge Base retrieval tool calls.",
+        "Filters indexed passages before chunks enter the model prompt.",
+        "Prevents unauthorized corpus exposure in multi-tenant agent deployments."
+      ],
+      "whyMatters": "Security-conscious AWS builders can wire shared agent tools without risking cross-user retrieval leaks."
+    }
+  },
+  {
+    "id": "bedrock-cost-attribution",
+    "title": "Cost attribution and controls for AI developer and productivity tools on Amazon Bedrock",
+    "feedTitle": "AWS Machine Learning Blog",
+    "link": "https://aws.amazon.com/blogs/machine-learning/",
+    "content": "Amazon Bedrock provides built-in usage attribution, application inference profiles, and quota caps so platform teams can track token spend by team, project, or coding agent environment. Combining CloudWatch alarms with per-profile rate limits prevents runaway agent loops from exhausting monthly budgets.",
+    "candidateSummary": {
+      "tldr": "Amazon Bedrock supports cost attribution and spend guardrails via application inference profiles and CloudWatch budgets. Platform teams can isolate token consumption per developer group and cap runaway agent loops.",
+      "takeaways": [
+        "Assign inference profiles to separate billing across teams and tools.",
+        "Pair token metrics with CloudWatch alarms for automated spend alerts.",
+        "Apply per-profile throttling to bound unexpected agentic loop costs."
+      ],
+      "whyMatters": "Platform engineers gain deterministic cost visibility and hard guardrails for fleet-wide coding agents."
+    }
+  },
+  {
+    "id": "agentcore-fast-session-startup",
+    "title": "Architecture patterns for fast session startup on Amazon Bedrock AgentCore runtime",
+    "feedTitle": "AWS Machine Learning Blog",
+    "link": "https://aws.amazon.com/blogs/machine-learning/",
+    "content": "Interactive coding and support agents need sub-second cold starts and isolated execution sandboxes. Pre-warming runtime snapshots, lazy-loading tool manifests, and reusing persistent session volumes on Amazon Bedrock AgentCore cut session startup latency while maintaining per-task isolation.",
+    "candidateSummary": {
+      "tldr": "Amazon Bedrock AgentCore reduces agent session startup latency through pre-warmed runtime snapshots, lazy tool loading, and persistent session storage while preserving strict sandbox isolation.",
+      "takeaways": [
+        "Pre-warmed snapshots avoid full environment bootstrap on each agent turn.",
+        "Lazy-loading tool schemas keeps initial session handshake payloads small.",
+        "Per-session isolation prevents state leakage across concurrent user requests."
+      ],
+      "whyMatters": "Builders get faster interactive agent response times without compromising multi-tenant runtime isolation."
+    }
+  },
+  {
+    "id": "aurora-iceberg-parquet",
+    "title": "Amazon Aurora PostgreSQL now supports direct querying of Apache Iceberg and Parquet data in your data lake",
+    "feedTitle": "AWS News Blog",
+    "link": "https://aws.amazon.com/blogs/aws/",
+    "content": "Amazon Aurora PostgreSQL introduces native foreign-table querying over Apache Iceberg tables and Parquet files stored in Amazon S3. Analytical joins across transactional Postgres tables and S3 data lakes run directly from SQL without ETL duplication pipelines.",
+    "candidateSummary": {
+      "tldr": "Amazon Aurora PostgreSQL now queries Apache Iceberg tables and Parquet files in Amazon S3 directly from SQL. Developers can join operational rows with data lake partitions without extra ETL jobs.",
+      "takeaways": [
+        "Exposes S3-backed Iceberg and Parquet datasets inside Aurora SQL queries.",
+        "Eliminates duplicate ingestion pipelines for hybrid OLTP/lake joins.",
+        "Preserves Iceberg snapshot semantics for consistent analytical reads."
+      ],
+      "whyMatters": "Application teams can combine live Postgres state with lakehouse history using standard SQL."
+    }
+  },
+  {
+    "id": "aws-emulator-local-testing",
+    "title": "Test your applications against AWS locally with AWS Emulator",
+    "feedTitle": "AWS News Blog",
+    "link": "https://aws.amazon.com/blogs/aws/",
+    "content": "AWS Emulator lets developers run realistic local simulations of core AWS APIs in CI and developer workstations before touching cloud accounts. Faster feedback loops catch IAM, Lambda, and DynamoDB integration mistakes offline without provisioning ephemeral sandboxes on every commit.",
+    "candidateSummary": {
+      "tldr": "AWS Emulator provides local simulation of core AWS APIs for workstation and CI integration testing. Teams catch IAM, Lambda, and DynamoDB regressions offline before provisioning live cloud sandboxes.",
+      "takeaways": [
+        "Runs AWS service API contracts locally for fast pre-deploy test suites.",
+        "Catches IAM and SDK integration bugs in CI without cloud latency.",
+        "Reduces ephemeral sandbox churn during rapid agent-driven iteration."
+      ],
+      "whyMatters": "Builders and coding agents can verify AWS workflows locally in seconds before deploying."
+    }
+  }
+]

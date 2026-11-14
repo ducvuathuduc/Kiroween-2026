@@ -17,6 +17,7 @@ export interface ReaderSettings {
   reducedMotion: MotionPreference
   aiProvider: AIProviderId
   personalBoostEnabled: boolean
+  semanticSearchEnabled: boolean
   audioVoiceURI: string | null
   audioRate: number
 }
@@ -27,6 +28,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   reducedMotion: 'system',
   aiProvider: 'gemini',
   personalBoostEnabled: true,
+  semanticSearchEnabled: true,
   audioVoiceURI: null,
   audioRate: 1,
 }
@@ -46,6 +48,7 @@ export function sanitizeSettings(raw: unknown): ReaderSettings {
     obj.reducedMotion === 'reduce' ? 'reduce' : 'system'
   const aiProvider = sanitizeProviderId(obj.aiProvider)
   const personalBoostEnabled = obj.personalBoostEnabled !== false
+  const semanticSearchEnabled = obj.semanticSearchEnabled !== false
   const audioVoiceURI =
     typeof obj.audioVoiceURI === 'string' && obj.audioVoiceURI.trim().length > 0
       ? obj.audioVoiceURI
@@ -61,6 +64,7 @@ export function sanitizeSettings(raw: unknown): ReaderSettings {
     reducedMotion,
     aiProvider,
     personalBoostEnabled,
+    semanticSearchEnabled,
     audioVoiceURI,
     audioRate,
   }
@@ -157,6 +161,144 @@ export async function saveTasteProfile(profile: TasteProfile): Promise<boolean> 
   }
 }
 
+export interface SemanticVectorRecord {
+  itemId: string
+  vec: number[]
+  model: string
+  updatedAt: number
+}
+
+const SEMANTIC_DB_NAME = 'rr-semantic'
+const SEMANTIC_STORE_NAME = 'vectors'
+const MAX_STORED_VECTORS = 600
+
+function openSemanticDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB unavailable'))
+      return
+    }
+    const request = indexedDB.open(SEMANTIC_DB_NAME, 1)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(SEMANTIC_STORE_NAME)) {
+        db.createObjectStore(SEMANTIC_STORE_NAME, { keyPath: 'itemId' })
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+export function isValidSemanticRecord(
+  value: unknown,
+  expectedModel?: string,
+): value is SemanticVectorRecord {
+  if (!value || typeof value !== 'object') return false
+  const rec = value as Partial<SemanticVectorRecord>
+  if (typeof rec.itemId !== 'string' || !rec.itemId) return false
+  if (typeof rec.model !== 'string' || !rec.model) return false
+  if (expectedModel && rec.model !== expectedModel) return false
+  if (typeof rec.updatedAt !== 'number' || !Number.isFinite(rec.updatedAt)) return false
+  return (
+    Array.isArray(rec.vec) &&
+    rec.vec.length === 384 &&
+    rec.vec.every((n) => typeof n === 'number' && Number.isFinite(n))
+  )
+}
+
+export async function loadSemanticVectors(
+  itemIds: readonly string[],
+  model: string,
+): Promise<Record<string, SemanticVectorRecord>> {
+  if (itemIds.length === 0) return {}
+  try {
+    const db = await openSemanticDatabase()
+    try {
+      const wanted = new Set(itemIds)
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(SEMANTIC_STORE_NAME, 'readonly')
+        const store = tx.objectStore(SEMANTIC_STORE_NAME)
+        const req = store.getAll()
+        req.onsuccess = () => {
+          const rows = Array.isArray(req.result) ? req.result : []
+          const out: Record<string, SemanticVectorRecord> = {}
+          for (const row of rows) {
+            if (isValidSemanticRecord(row, model) && wanted.has(row.itemId)) {
+              out[row.itemId] = row
+            }
+          }
+          resolve(out)
+        }
+        req.onerror = () => reject(req.error)
+      })
+    } finally {
+      db.close()
+    }
+  } catch {
+    return {}
+  }
+}
+
+export async function saveSemanticVectors(
+  records: readonly SemanticVectorRecord[],
+): Promise<boolean> {
+  if (records.length === 0) return true
+  try {
+    const db = await openSemanticDatabase()
+    try {
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(SEMANTIC_STORE_NAME, 'readwrite')
+        const store = tx.objectStore(SEMANTIC_STORE_NAME)
+        for (const record of records) {
+          if (isValidSemanticRecord(record)) {
+            store.put(record)
+          }
+        }
+        const getAllReq = store.getAll()
+        getAllReq.onsuccess = () => {
+          const rows = Array.isArray(getAllReq.result)
+            ? (getAllReq.result as SemanticVectorRecord[])
+            : []
+          if (rows.length > MAX_STORED_VECTORS) {
+            const oldest = [...rows]
+              .sort((a, b) => a.updatedAt - b.updatedAt)
+              .slice(0, rows.length - MAX_STORED_VECTORS)
+            for (const stale of oldest) {
+              store.delete(stale.itemId)
+            }
+          }
+        }
+        tx.oncomplete = () => resolve(true)
+        tx.onerror = () => reject(tx.error)
+        tx.onabort = () => reject(tx.error)
+      })
+    } finally {
+      db.close()
+    }
+  } catch {
+    return false
+  }
+}
+
+export async function clearSemanticVectors(): Promise<void> {
+  try {
+    const db = await openSemanticDatabase()
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(SEMANTIC_STORE_NAME, 'readwrite')
+        tx.objectStore(SEMANTIC_STORE_NAME).clear()
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+      })
+    } finally {
+      db.close()
+    }
+  } catch {
+    // ignore storage failures
+  }
+}
+
 export function clearReaderStorage(): void {
   const keys = [
     'rr.feeds',
@@ -173,6 +315,7 @@ export function clearReaderStorage(): void {
   } catch {
     // ignore storage failures
   }
+  void clearSemanticVectors()
   void clearOfflineStorage()
 }
 
@@ -301,9 +444,13 @@ export async function clearOfflineStorage(): Promise<void> {
   const clear = pending.then(async () => {
     try {
       await Promise.all(
-        [OFFLINE_CACHE, COVER_CACHE, 'rr-rss-v1', 'rr-pages-v1'].map((name) =>
-          caches.delete(name),
-        ),
+        [
+          OFFLINE_CACHE,
+          COVER_CACHE,
+          'rr-rss-v1',
+          'rr-pages-v1',
+          'transformers-cache',
+        ].map((name) => caches.delete(name)),
       )
     } catch {
       /* Cache API unavailable */

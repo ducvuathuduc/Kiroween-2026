@@ -1,0 +1,247 @@
+[
+  {
+    "id": "high-relevance-recent-kiro-aws",
+    "description": "High-relevance recent AWS/Kiro/agent article scores >= 85 and <= 100",
+    "title": "How to deploy agentic workflows with Kiro on AWS Bedrock",
+    "content": "Build secure AI coding workflows using IAM, Bedrock AgentCore, and MCP servers in production.",
+    "hoursAgo": 2,
+    "feedId": "aws-ml",
+    "feedTitle": "AWS Machine Learning Blog",
+    "expected": {
+      "minScore": 85,
+      "maxScore": 100
+    }
+  },
+  {
+    "id": "smooth-recency-decay",
+    "description": "Recency decay gives higher score and recency dimension to 4h vs 120h article",
+    "title": "AWS security update",
+    "content": "Details inside",
+    "hoursAgo": 4,
+    "staleHoursAgo": 120,
+    "feedId": "aws-news",
+    "expected": {
+      "requireFreshGtStale": true
+    }
+  },
+  {
+    "id": "invalid-pubdate-no-nan",
+    "description": "Invalid pubDate returns finite positive score with recency=14",
+    "title": "Kiro workflow",
+    "content": "Guide",
+    "pubDateOverride": "not-a-date",
+    "expected": {
+      "minScore": 1,
+      "maxScore": 100,
+      "exactRecency": 14
+    }
+  },
+  {
+    "id": "explain-dimensions-and-reasons",
+    "description": "explainScore returns 4 normalized dimensions and >= 4 reasons",
+    "title": "Introducing Kiro on AWS",
+    "content": "New agentic workflow launch with IAM security baseline.",
+    "hoursAgo": 4,
+    "feedId": "aws-news",
+    "expected": {
+      "minRelevance": 70,
+      "exactRecency": 100,
+      "minAuthority": 72,
+      "minNovelty": 50,
+      "minReasons": 4
+    }
+  },
+  {
+    "id": "authority-official-aws-blog-url",
+    "description": "Official aws.amazon.com blog link gets authority=72 and score=74",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "custom",
+    "link": "https://aws.amazon.com/blogs/aws/",
+    "expected": {
+      "exactAuthority": 72,
+      "exactScore": 74,
+      "officialSource": true
+    }
+  },
+  {
+    "id": "authority-official-docs-subdomain",
+    "description": "Official docs.aws.amazon.com link gets authority=72 and score=74",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "custom",
+    "link": "https://docs.aws.amazon.com/",
+    "expected": {
+      "exactAuthority": 72,
+      "exactScore": 74,
+      "officialSource": true
+    }
+  },
+  {
+    "id": "authority-official-trailing-dot-upper",
+    "description": "Official AWS.AMAZON.COM. trailing-dot uppercase host normalized as official",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "custom",
+    "link": "https://AWS.AMAZON.COM./blogs/aws/",
+    "expected": {
+      "exactAuthority": 72,
+      "exactScore": 74,
+      "officialSource": true
+    }
+  },
+  {
+    "id": "authority-feed-aws-news",
+    "description": "aws-news feed without link gets official authority=72 and score=74",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "aws-news",
+    "expected": {
+      "exactAuthority": 72,
+      "exactScore": 74,
+      "officialSource": true
+    }
+  },
+  {
+    "id": "authority-feed-aws-ml",
+    "description": "aws-ml feed without link gets official authority=72 and score=74",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "aws-ml",
+    "expected": {
+      "exactAuthority": 72,
+      "exactScore": 74,
+      "officialSource": true
+    }
+  },
+  {
+    "id": "authority-lookalike-feed-id",
+    "description": "aws-lookalike feedId stays non-official (authority=44, score=69)",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "aws-lookalike",
+    "expected": {
+      "exactAuthority": 44,
+      "exactScore": 69,
+      "officialSource": false
+    }
+  },
+  {
+    "id": "authority-lookalike-subdomain-evil",
+    "description": "aws.amazon.com.evil.example stays non-official (authority=44, score=69)",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "custom",
+    "link": "https://aws.amazon.com.evil.example/",
+    "expected": {
+      "exactAuthority": 44,
+      "exactScore": 69,
+      "officialSource": false
+    }
+  },
+  {
+    "id": "authority-lookalike-notaws",
+    "description": "notaws.amazon.com stays non-official (authority=44, score=69)",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "custom",
+    "link": "https://notaws.amazon.com/",
+    "expected": {
+      "exactAuthority": 44,
+      "exactScore": 69,
+      "officialSource": false
+    }
+  },
+  {
+    "id": "authority-lookalike-path",
+    "description": "example.com/aws.amazon.com/ stays non-official (authority=44, score=69)",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "custom",
+    "link": "https://example.com/aws.amazon.com/",
+    "expected": {
+      "exactAuthority": 44,
+      "exactScore": 69,
+      "officialSource": false
+    }
+  },
+  {
+    "id": "authority-lookalike-query",
+    "description": "example.com/?next=aws.amazon.com stays non-official (authority=44, score=69)",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "custom",
+    "link": "https://example.com/?next=aws.amazon.com",
+    "expected": {
+      "exactAuthority": 44,
+      "exactScore": 69,
+      "officialSource": false
+    }
+  },
+  {
+    "id": "authority-lookalike-userinfo",
+    "description": "aws.amazon.com@example.com stays non-official (authority=44, score=69)",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "custom",
+    "link": "https://aws.amazon.com@example.com/",
+    "expected": {
+      "exactAuthority": 44,
+      "exactScore": 69,
+      "officialSource": false
+    }
+  },
+  {
+    "id": "authority-aws-news-non-aws-link",
+    "description": "aws-news feed with example.com link drops official bonus (authority=44, score=69)",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "aws-news",
+    "link": "https://example.com/",
+    "expected": {
+      "exactAuthority": 44,
+      "exactScore": 69,
+      "officialSource": false
+    }
+  },
+  {
+    "id": "authority-invalid-link",
+    "description": "Invalid link URL stays non-official (authority=44, score=69)",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "aws-news",
+    "link": "not a URL",
+    "expected": {
+      "exactAuthority": 44,
+      "exactScore": 69,
+      "officialSource": false
+    }
+  },
+  {
+    "id": "authority-javascript-scheme",
+    "description": "javascript:aws.amazon.com stays non-official (authority=44, score=69)",
+    "title": "Kiro AI coding update",
+    "content": "Details inside",
+    "hoursAgo": 2,
+    "feedId": "aws-news",
+    "link": "javascript:aws.amazon.com",
+    "expected": {
+      "exactAuthority": 44,
+      "exactScore": 69,
+      "officialSource": false
+    }
+  }
+]
