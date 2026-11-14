@@ -1,6 +1,9 @@
 import { safeHttpUrl } from './format'
 
 const ALLOWED_ELEMENTS = [
+  'article',
+  'section',
+  'div',
   'p',
   'h2',
   'h3',

@@ -22,6 +22,7 @@ import {
   downloadJsonExport,
   openExternalUrl,
 } from './lib/export'
+import { extract, type ExtractedArticle } from './lib/extract'
 import {
   DEFAULT_FEEDS,
   fetchFeed,
@@ -120,6 +121,7 @@ export default function App() {
     Record<string, boolean>
   >({})
   const [summaryErrors, setSummaryErrors] = useState<Record<string, string>>({})
+  const [articles, setArticles] = useState<Record<string, ExtractedArticle>>({})
   const [alertsEnabled, setAlertsEnabled] = useState<boolean>(() =>
     loadStorage('rr.notify', false),
   )
@@ -564,6 +566,24 @@ export default function App() {
     visibleItems[0] ??
     null
 
+  useEffect(() => {
+    if (!selectedItem || selectedItem.sample || !navigator.onLine || articles[selectedItem.id]) return
+    const item = selectedItem
+    let active = true
+    void extract(item.link).then((article) => {
+      if (!active || !article) return
+      setArticles((current) => ({ ...current, [item.id]: article }))
+      setSelectedId((current) => current ?? item.id)
+      setItems((current) => current.map((entry) => {
+        if (entry.id !== item.id) return entry
+        const scoreText = article.markdown.slice(0, 5000)
+        const score = explainScore(entry.title, scoreText, entry.pubDate, entry)
+        return { ...entry, scoreText, score: score.score, scoreDimensions: score.dimensions }
+      }))
+    })
+    return () => { active = false }
+  }, [selectedItem, articles])
+
   const selectItem = useCallback((id: string) => {
     setSelectedId(id)
     setReadIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
@@ -601,6 +621,7 @@ export default function App() {
         return next
       })
       try {
+        const article = articles[item.id] ?? await extract(item.link)
         const res = await fetch('/api/summarize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -608,7 +629,7 @@ export default function App() {
             title: item.title,
             feedTitle: item.feedTitle,
             link: item.link,
-            content: item.description,
+            content: article?.markdown ?? item.description,
             provider: settings.aiProvider,
           }),
         })
@@ -645,7 +666,7 @@ export default function App() {
         })
       }
     },
-    [settings.aiProvider],
+    [settings.aiProvider, articles],
   )
 
   // Keyboard: Cmd/Ctrl+K palette, ? shortcuts modal, j/k move, Enter open, o original, s summarize, e Kiro modal, b bookmark, r refresh, / search
@@ -1030,6 +1051,7 @@ export default function App() {
                 />
                 <ReaderPane
                   item={selectedItem}
+                  extractedHtml={selectedItem ? articles[selectedItem.id]?.html : undefined}
                   saved={
                     selectedItem ? savedIds.includes(selectedItem.id) : false
                   }

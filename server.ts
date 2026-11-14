@@ -10,6 +10,8 @@ import { sanitizeProviderId } from './src/lib/providers.ts'
 import { mcpHandler } from './server/mcp.ts'
 import { a2aApp } from './server/a2a.ts'
 import { askResponse } from './server/ask.ts'
+import { extractArticle } from './server/extract.ts'
+import { DEFAULT_FEEDS } from './src/lib/feeds.ts'
 
 interface SummarizeRequestBody {
   title?: unknown
@@ -68,11 +70,11 @@ function isPublicHttpUrl(raw: string): string | null {
   }
 }
 
-async function fetchPublicUrl(rawUrl: string, init: RequestInit): Promise<Response> {
+async function fetchPublicUrl(rawUrl: string, init: RequestInit, allowed: (url: URL) => boolean = () => true): Promise<Response> {
   let url = rawUrl
   for (let redirects = 0; ; redirects += 1) {
     const safeUrl = isPublicHttpUrl(url)
-    if (!safeUrl) throw new Error('Upstream URL must be public HTTP(S).')
+    if (!safeUrl || !allowed(new URL(safeUrl))) throw new Error('Upstream URL is not permitted.')
     const response = await fetch(safeUrl, { ...init, redirect: 'manual' })
     const location = response.headers.get('location')
     if (![301, 302, 303, 307, 308].includes(response.status) || !location) return response
@@ -198,6 +200,31 @@ app.get('/api/providers', (c) => {
     defaultProvider: 'gemini',
     providers: getProvidersStatus(),
   })
+})
+
+app.get('/api/extract', async (c) => {
+  const urls = c.req.queries('url') ?? []
+  const allowedHosts = new Set(DEFAULT_FEEDS.map((feed) => new URL(feed.url).hostname.toLowerCase()))
+  const allowed = (url: URL) => url.protocol === 'https:' && !url.port && allowedHosts.has(url.hostname.toLowerCase())
+  const safeUrl = urls.length === 1 ? isPublicHttpUrl(urls[0]) : null
+  if (!safeUrl || !allowed(new URL(safeUrl))) return c.json({ error: 'Article host not permitted.' }, 400)
+  try {
+    const response = await fetchPublicUrl(safeUrl, {
+      signal: AbortSignal.timeout(6500), headers: { Accept: 'text/html' },
+    }, allowed)
+    if (!response.ok || !response.headers.get('content-type')?.toLowerCase().includes('text/html')) return c.json({ error: 'Article unavailable.' }, 502)
+    let bytes = 0
+    const limited = response.body?.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        bytes += chunk.byteLength
+        if (bytes > MAX_RSS_BYTES) throw new Error('Article too large.')
+        controller.enqueue(chunk)
+      },
+    }))
+    const article = await extractArticle(await new Response(limited).text(), safeUrl)
+    if (!article || article.html.length > 300_000 || article.markdown.length > 300_000) return c.json({ error: 'Article unavailable.' }, 502)
+    return c.json(article)
+  } catch { return c.json({ error: 'Article unavailable.' }, 502) }
 })
 
 app.get('/api/rss', async (c) => {

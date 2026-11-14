@@ -36,6 +36,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 interface ReaderPaneProps {
   item: FeedItem | null
+  extractedHtml?: string
   saved: boolean
   lastVisitIso: string | null
   density?: ReaderDensity
@@ -54,6 +55,7 @@ interface ReaderPaneProps {
 
 export default function ReaderPane({
   item,
+  extractedHtml,
   saved,
   lastVisitIso,
   density = 'comfortable',
@@ -448,7 +450,13 @@ export default function ReaderPane({
                 {summary}
               </p>
 
-              {hasRichOrExtraHtml && item.descriptionHtml && (
+              {extractedHtml ? (
+                <section aria-label="Full article" className="mt-7">
+                  <Separator className="mb-5" />
+                  <h2 className="text-[11px] font-medium tracking-wider text-zinc-500 uppercase">Full article</h2>
+                  <SafeHtml html={extractedHtml} className="feed-excerpt mt-3 text-[14px]" />
+                </section>
+              ) : hasRichOrExtraHtml && item.descriptionHtml && (
                 <section aria-label="Full feed excerpt" className="mt-7">
                   <Separator className="mb-5" />
                   <h2 className="text-[11px] font-medium tracking-wider text-zinc-500 uppercase">

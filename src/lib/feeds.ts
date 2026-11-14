@@ -19,6 +19,8 @@ export interface FeedItem {
   score?: number
   /** Deterministic 4-dimension breakdown (0-100 each) */
   scoreDimensions?: SignalDimensions
+  /** Text used to calculate score when it differs from the feed summary. */
+  scoreText?: string
   /** True when this item comes from the bundled offline sample set */
   sample?: boolean
 }

@@ -25,7 +25,7 @@ export default function ScoreBreakdownPopover({
   onOpenRadar,
   onSelectItem,
 }: ScoreBreakdownPopoverProps) {
-  const breakdown = explainScore(item.title, item.description, item.pubDate, {
+  const breakdown = explainScore(item.title, item.scoreText ?? item.description, item.pubDate, {
     feedId: item.feedId,
     feedTitle: item.feedTitle,
     link: item.link,
