@@ -67,6 +67,12 @@ import {
   SETTINGS_STORAGE_KEY,
   type ReaderSettings,
 } from './lib/storage'
+import {
+  createBriefingPlayer,
+  type BriefingPlaybackStatus,
+  type BriefingPlayer,
+  type DailyBriefingItem,
+} from './lib/tts'
 
 async function fetchMissingOgImages(
   candidates: FeedItem[],
@@ -112,6 +118,90 @@ export default function App() {
     if (!tasteReady || !settings.personalBoostEnabled || !item || item.sample) return
     updateTaste(recordFeedback(item.id, feedback, item, tasteRef.current), 'Taste updated on this device.')
   }, [tasteReady, settings.personalBoostEnabled, updateTaste])
+
+  const briefingPlayerRef = useRef<BriefingPlayer | null>(null)
+  const [audioStatus, setAudioStatus] = useState<BriefingPlaybackStatus>('idle')
+  const [audioItemIndex, setAudioItemIndex] = useState<number>(-1)
+  const [audioItemId, setAudioItemId] = useState<string | null>(null)
+  const [audioItemTotal, setAudioItemTotal] = useState<number>(0)
+  const [audioItemTitle, setAudioItemTitle] = useState<string>('')
+  const [audioError, setAudioError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const player = createBriefingPlayer()
+    briefingPlayerRef.current = player
+    const unsubscribe = player.subscribe({
+      onStateChange: (status) => {
+        setAudioStatus(status)
+        if (status === 'idle') {
+          setAudioItemIndex(-1)
+          setAudioItemId(null)
+          setAudioItemTotal(0)
+          setAudioItemTitle('')
+        }
+      },
+      onItemChange: (index, item) => {
+        setAudioItemIndex(index)
+        setAudioItemId(item.id)
+        setAudioItemTitle(item.title)
+      },
+      onError: (message) => {
+        setAudioError(message)
+      },
+    })
+    return () => {
+      unsubscribe()
+      player.stop()
+      briefingPlayerRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    briefingPlayerRef.current?.setOptions({
+      voiceURI: settings.audioVoiceURI,
+      rate: settings.audioRate,
+    })
+  }, [settings.audioVoiceURI, settings.audioRate])
+
+  const handlePlayBriefing = useCallback(
+    (briefingItems: DailyBriefingItem[]) => {
+      setAudioError(null)
+      setAudioItemTotal(briefingItems.length)
+      briefingPlayerRef.current?.play(briefingItems, {
+        voiceURI: settings.audioVoiceURI,
+        rate: settings.audioRate,
+      })
+    },
+    [settings.audioVoiceURI, settings.audioRate],
+  )
+
+  const handleTogglePauseAudio = useCallback(() => {
+    const player = briefingPlayerRef.current
+    if (!player) return
+    if (player.getStatus() === 'speaking') {
+      player.pause()
+    } else if (player.getStatus() === 'paused') {
+      player.resume()
+    }
+  }, [])
+
+  const handleStopAudio = useCallback(() => {
+    briefingPlayerRef.current?.stop()
+  }, [])
+
+  const handleAudioSettingsChange = useCallback(
+    (patch: { audioVoiceURI?: string | null; audioRate?: number }) => {
+      setSettings((prev) => ({
+        ...prev,
+        ...(patch.audioVoiceURI !== undefined
+          ? { audioVoiceURI: patch.audioVoiceURI }
+          : {}),
+        ...(patch.audioRate !== undefined ? { audioRate: patch.audioRate } : {}),
+      }))
+    },
+    [],
+  )
+
   const [feeds, setFeeds] = useState<FeedSource[]>(() =>
     loadStorage('rr.feeds', DEFAULT_FEEDS),
   )
@@ -1008,6 +1098,12 @@ export default function App() {
             onExportOpml={() => downloadOpml(feeds)}
             onExportJson={() => void handleExportJson()}
             onRestoreDefaults={restoreDefaults}
+            audioStatus={audioStatus}
+            audioItemIndex={audioItemIndex}
+            audioItemTotal={audioItemTotal}
+            audioItemTitle={audioItemTitle}
+            onAudioTogglePause={handleTogglePauseAudio}
+            onAudioStop={handleStopAudio}
           />
           <div aria-live="polite" className="sr-only">{offline ? 'Offline. Showing last fetched items.' : 'Online.'}</div>
           {updateState !== 'idle' && !updateDismissed && (
@@ -1143,6 +1239,17 @@ export default function App() {
                   onOpenInReader={openItemInReader}
                   onOpenRadar={() => navigateTo('radar')}
                   onNavigate={navigateTo}
+                  audioVoiceURI={settings.audioVoiceURI}
+                  audioRate={settings.audioRate}
+                  onAudioSettingsChange={handleAudioSettingsChange}
+                  audioStatus={audioStatus}
+                  audioItemId={audioItemId}
+                  audioItemIndex={audioItemIndex}
+                  audioItemTotal={audioItemTotal}
+                  audioError={audioError}
+                  onPlayBriefing={handlePlayBriefing}
+                  onTogglePauseAudio={handleTogglePauseAudio}
+                  onStopAudio={handleStopAudio}
                 />
               </motion.div>
             ) : activeView === 'radar' || activeView === 'system' ? (

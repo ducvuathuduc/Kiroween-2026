@@ -1,0 +1,19 @@
+# Design — Audio Daily Briefing (`src/lib/tts.ts` + Briefing / TopBar integration)
+
+`src/lib/tts.ts` isolates all speech synthesis logic behind a small `SpeechEngine` interface (`isSupported`, `speak`, `cancel`, `pause`, `resume`, `getVoices`, `onVoicesChanged`). The default implementation (`createWebSpeechEngine`) delegates to native `window.speechSynthesis` and `SpeechSynthesisUtterance`, guarded by `typeof window !== 'undefined'` so Node test runs never touch browser globals. Future local/neural engines can implement `SpeechEngine` without changing UI callers.
+
+`chunkSentences(text, maxLength = 200)` normalizes whitespace, protects decimals/versions (`1.5`, `v2.0`), multi-dot acronyms (`U.S.`, `e.g.`, `i.e.`), and common abbreviations (`Dr.`, `Mr.`, `vs.`, `etc.`, `Inc.`) before splitting on sentence boundaries, then splits overly long sentences at clause or word boundaries so browser speech engines do not silently truncate long utterances.
+
+`buildBriefingUtterances(items)` builds a flat ordered list of `{ text, itemId, itemIndex, itemTitle, kind }` from `DailyBriefingItem[]` (note: `src/lib/briefing.ts` currently returns `FeedItem[]` from `selectDailyBriefingItems`, so `DailyBriefingItem` lives in `src/lib/tts.ts` and `DailyBriefingView.tsx` maps each selected item + Gemini TL;DR or 1-sentence `summarize()` fallback). `createBriefingPlayer(engine?)` owns the `idle | speaking | paused` state machine, increments a monotonic `generation` counter on `play()` and `stop()`, cancels prior utterances before starting, ignores `'canceled'`/`'interrupted'` cancellation errors, emits `onItemChange(index, item)` whenever playback enters a new item, and allows live `setOptions({ voiceURI, rate })` updates for subsequent utterances.
+
+`src/lib/storage.ts` extends `ReaderSettings` and `DEFAULT_SETTINGS` with `audioVoiceURI: string | null` (`null` default) and `audioRate: number` (`1` default), validated and clamped to `[0.5, 2]` in `sanitizeSettings`. `App.tsx` holds the shared `BriefingPlayer` instance so playback survives view navigation (for example opening an item in Reader while listening) and drives optional mini-player props on `TopBar` (`Play/Pause`, `item x/5`, truncated title, `Stop`). `DailyBriefingView` also retains an internal fallback player when optional audio props are omitted.
+
+## Modern-web guidance applied
+
+- `docs/modern-web-guidance/guides/accessibility/accessibility.md`: Native `<button>` controls via shadcn `Button` with explicit `aria-pressed` / `aria-label` states; native `<select>` and `<input type="range">` explicitly associated with `<label htmlFor>` (never placeholder/title-only labels); active briefing item highlighted via border, ring, `"Đang đọc"` `Badge`, and `aria-current="step"` rather than color alone; status updates announced via a single `aria-live="polite"` region.
+- `docs/modern-web-guidance/guides/accessibility/accessible-error-announcement.md`: Unsupported `speechSynthesis` and playback errors are surfaced inline inside the polite live region rather than `window.alert()`, avoiding disruptive modal interruptions while keeping screen readers informed.
+- `docs/modern-web-guidance/guides/privacy/privacy.md`: Data minimization and inline transparency — synthesis uses on-device `speechSynthesis` only and displays an explicit inline notice that briefing text never leaves the browser, storing only non-sensitive voice/rate preferences in `localStorage`.
+
+## Verification plan
+
+Deterministic logic (`chunkSentences`, `buildBriefingUtterances`, and queue state machine transitions including `pause`/`resume`, `stop`, rapid double-`play`, and stale callback rejection) is tested in `tests/tts.test.ts` with a stubbed `SpeechEngine`. Browser voice loading (`voiceschanged`) and cross-browser playback depend on host OS/browser voices (notably Safari and Firefox) and require manual smoke verification.

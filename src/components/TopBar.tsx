@@ -15,16 +15,20 @@ import {
   Layers,
   MoreHorizontal,
   Newspaper,
+  Pause,
+  Play,
   RefreshCw,
   RotateCcw,
   Search,
   Settings,
   Shield,
+  Square,
   X,
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { formatRefreshTime } from '../lib/format'
 import type { AppRoute, NavigableRoute } from '../lib/routes'
+import type { BriefingPlaybackStatus } from '../lib/tts'
 import { Avatar, AvatarFallback } from './ui/avatar'
 import { Button } from './ui/button'
 import {
@@ -71,6 +75,12 @@ interface TopBarProps {
   onExportOpml: () => void
   onExportJson: () => void
   onRestoreDefaults: () => void
+  audioStatus?: BriefingPlaybackStatus
+  audioItemIndex?: number
+  audioItemTotal?: number
+  audioItemTitle?: string
+  onAudioTogglePause?: () => void
+  onAudioStop?: () => void
 }
 
 const NAV_TABS = [
@@ -106,8 +116,17 @@ export default function TopBar({
   onExportOpml,
   onExportJson,
   onRestoreDefaults,
+  audioStatus = 'idle',
+  audioItemIndex = -1,
+  audioItemTotal = 0,
+  audioItemTitle = '',
+  onAudioTogglePause,
+  onAudioStop,
 }: TopBarProps) {
   const formattedRefresh = lastRefresh ? formatRefreshTime(lastRefresh) : ''
+  const showMiniPlayer =
+    (audioStatus === 'speaking' || audioStatus === 'paused') &&
+    audioItemTotal > 0
 
   return (
     <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white/75 px-3 backdrop-blur-xl sm:gap-3 sm:px-4">
@@ -170,7 +189,9 @@ export default function TopBar({
         </nav>
 
         <Separator orientation="vertical" className="hidden h-4 xl:block" />
-        <div className={`hidden shrink-0 items-center gap-3 whitespace-nowrap font-mono text-xs tabular-nums text-zinc-500 ${offline || updateAvailable ? '2xl:flex' : 'xl:flex'}`}>
+        <div
+          className={`hidden shrink-0 items-center gap-3 whitespace-nowrap font-mono text-xs tabular-nums text-zinc-500 ${offline || updateAvailable ? '2xl:flex' : 'xl:flex'}`}
+        >
           <span>
             <strong className="font-medium text-zinc-950">{total}</strong> items
           </span>
@@ -190,8 +211,79 @@ export default function TopBar({
       </div>
 
       <div className="ml-auto flex items-center gap-1 sm:gap-1.5">
-        {offline && <span className="rounded border border-zinc-300 bg-zinc-100 px-1 py-1 font-mono text-[10px] font-semibold text-zinc-800">OFFLINE</span>}
-        {updateAvailable && <Button type="button" variant="outline" size="sm" onClick={onUpdate} className="hidden h-8 px-2 text-xs sm:inline-flex">Update</Button>}
+        {showMiniPlayer && (
+          <div
+            role="region"
+            aria-label="Audio briefing mini player"
+            className="flex min-w-0 items-center gap-1 rounded-md border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-xs text-zinc-900"
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              disabled={!onAudioTogglePause}
+              aria-pressed={audioStatus === 'speaking'}
+              aria-label={
+                audioStatus === 'speaking'
+                  ? 'Pause audio briefing'
+                  : 'Resume audio briefing'
+              }
+              onClick={onAudioTogglePause}
+              className="text-zinc-900 hover:bg-zinc-200/70"
+            >
+              {audioStatus === 'speaking' ? (
+                <Pause className="size-3" />
+              ) : (
+                <Play className="size-3" />
+              )}
+            </Button>
+
+            <button
+              type="button"
+              onClick={() => onViewChange('briefing')}
+              className="flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left hover:bg-zinc-200/60"
+            >
+              <span className="shrink-0 font-mono text-[11px] font-semibold tabular-nums text-zinc-950">
+                item {Math.max(1, audioItemIndex + 1)}/{audioItemTotal}
+              </span>
+              {audioItemTitle && (
+                <span className="hidden max-w-28 truncate text-[11px] text-zinc-600 md:inline">
+                  {audioItemTitle}
+                </span>
+              )}
+            </button>
+
+            {onAudioStop && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Stop audio briefing"
+                onClick={onAudioStop}
+                className="text-zinc-600 hover:bg-zinc-200/70 hover:text-zinc-950"
+              >
+                <Square className="size-2.5" />
+              </Button>
+            )}
+          </div>
+        )}
+
+        {offline && (
+          <span className="rounded border border-zinc-300 bg-zinc-100 px-1 py-1 font-mono text-[10px] font-semibold text-zinc-800">
+            OFFLINE
+          </span>
+        )}
+        {updateAvailable && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onUpdate}
+            className="hidden h-8 px-2 text-xs sm:inline-flex"
+          >
+            Update
+          </Button>
+        )}
         <div className="relative hidden w-40 sm:block md:w-48">
           <label htmlFor="search-items" className="visually-hidden">
             Search titles and summaries
@@ -236,7 +328,15 @@ export default function TopBar({
           )}
         </div>
 
-        <Button type="button" variant="outline" size="sm" onClick={onOpenAsk} className="h-8 px-2 text-xs">Ask</Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onOpenAsk}
+          className="h-8 px-2 text-xs"
+        >
+          Ask
+        </Button>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -370,7 +470,11 @@ export default function TopBar({
               </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
-            {updateAvailable && <DropdownMenuItem onSelect={onUpdate}>Reload Reader update</DropdownMenuItem>}
+            {updateAvailable && (
+              <DropdownMenuItem onSelect={onUpdate}>
+                Reload Reader update
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={onOpenCommandPalette}>
               <Command className="size-3.5" />
               Command palette
@@ -395,38 +499,19 @@ export default function TopBar({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onExportJson}>
               <FileJson className="size-3.5" />
-              Export all data (.json)
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onRestoreDefaults}>
-              <RotateCcw className="size-3.5" />
-              Restore default feeds
+              Export digest (.json)
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <div className="px-2 py-1.5 text-xs text-zinc-500">
-              <p className="font-medium text-zinc-700">Install Reader</p>
-              <p className="mt-1">iPhone/iPad: in Safari, Share → Add to Home Screen. Other browsers: use the browser’s Install app menu when available.</p>
-              <p className="mt-1">Open online once to save the shell and fetched items for offline reading.</p>
-            </div>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-xs text-zinc-500">
-              Pages &amp; Settings
+            <DropdownMenuLabel className="text-[11px] text-zinc-400">
+              Pages
             </DropdownMenuLabel>
-            <DropdownMenuItem onSelect={() => onViewChange('settings')}>
-              <Settings className="size-3.5" />
-              Settings
+            <DropdownMenuItem onSelect={() => onViewChange('about')}>
+              <Info className="size-3.5" />
+              About
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onViewChange('docs')}>
               <BookOpen className="size-3.5" />
               Documentation
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onOpenShortcutsModal}>
-              <Keyboard className="size-3.5" />
-              Keyboard shortcuts
-              <DropdownMenuShortcut>?</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onViewChange('about')}>
-              <Info className="size-3.5" />
-              About
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onViewChange('changelog')}>
               <History className="size-3.5" />
@@ -434,24 +519,42 @@ export default function TopBar({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onViewChange('privacy')}>
               <Shield className="size-3.5" />
-              Privacy Policy
+              Privacy
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onViewChange('settings')}>
+              <Settings className="size-3.5" />
+              Settings
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-[11px] font-normal text-zinc-500">
-              j/k move · o open · s summarize · e kiro · ? keys
-            </DropdownMenuLabel>
+            <DropdownMenuItem onSelect={onOpenShortcutsModal}>
+              <Keyboard className="size-3.5" />
+              Keyboard shortcuts
+              <DropdownMenuShortcut>?</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onRestoreDefaults}>
+              <RotateCcw className="size-3.5" />
+              Restore default feeds
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Avatar size="sm" className="hidden border border-zinc-200 sm:flex">
-              <AvatarFallback className="bg-zinc-100 font-mono text-[10px] font-semibold text-zinc-800">
-                AW
-              </AvatarFallback>
-            </Avatar>
+            <button
+              type="button"
+              onClick={() => onViewChange('settings')}
+              aria-label="Open reader settings"
+              className="hidden rounded-full outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 sm:inline-flex"
+            >
+              <Avatar size="sm" className="border border-zinc-200">
+                <AvatarFallback className="bg-zinc-950 font-mono text-[10px] font-semibold text-white">
+                  RR
+                </AvatarFallback>
+              </Avatar>
+            </button>
           </TooltipTrigger>
-          <TooltipContent>AWS Builder Radar</TooltipContent>
+          <TooltipContent>Reader settings</TooltipContent>
         </Tooltip>
       </div>
     </header>

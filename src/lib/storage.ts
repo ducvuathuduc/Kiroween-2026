@@ -17,6 +17,8 @@ export interface ReaderSettings {
   reducedMotion: MotionPreference
   aiProvider: AIProviderId
   personalBoostEnabled: boolean
+  audioVoiceURI: string | null
+  audioRate: number
 }
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
@@ -25,6 +27,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   reducedMotion: 'system',
   aiProvider: 'gemini',
   personalBoostEnabled: true,
+  audioVoiceURI: null,
+  audioRate: 1,
 }
 
 export function sanitizeSettings(raw: unknown): ReaderSettings {
@@ -42,7 +46,24 @@ export function sanitizeSettings(raw: unknown): ReaderSettings {
     obj.reducedMotion === 'reduce' ? 'reduce' : 'system'
   const aiProvider = sanitizeProviderId(obj.aiProvider)
   const personalBoostEnabled = obj.personalBoostEnabled !== false
-  return { density, defaultFilter, reducedMotion, aiProvider, personalBoostEnabled }
+  const audioVoiceURI =
+    typeof obj.audioVoiceURI === 'string' && obj.audioVoiceURI.trim().length > 0
+      ? obj.audioVoiceURI
+      : null
+  const rawRate =
+    typeof obj.audioRate === 'number' && Number.isFinite(obj.audioRate)
+      ? obj.audioRate
+      : 1
+  const audioRate = Math.min(2, Math.max(0.5, Math.round(rawRate * 100) / 100))
+  return {
+    density,
+    defaultFilter,
+    reducedMotion,
+    aiProvider,
+    personalBoostEnabled,
+    audioVoiceURI,
+    audioRate,
+  }
 }
 
 export function loadStorage<T>(key: string, fallback: T): T {
@@ -85,18 +106,36 @@ export async function loadTasteProfile(): Promise<TasteProfile> {
           const value: unknown = request.result
           if (!value || typeof value !== 'object') return resolve(emptyProfile())
           const candidate = value as Partial<TasteProfile>
-          const validVector = (v: unknown) => Array.isArray(v) && (v.length === 0 || v.length === 128) && v.every((n) => typeof n === 'number' && Number.isFinite(n))
-          if (!candidate.counts || !Number.isSafeInteger(candidate.counts.liked) || candidate.counts.liked < 0 ||
-            !Number.isSafeInteger(candidate.counts.disliked) || candidate.counts.disliked < 0 ||
-            !candidate.topicWeights || typeof candidate.topicWeights !== 'object' ||
-            !Object.values(candidate.topicWeights).every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= 8) ||
-            !validVector(candidate.likedCentroid) || !validVector(candidate.dislikedCentroid)) return resolve(emptyProfile())
+          const validVector = (v: unknown) =>
+            Array.isArray(v) &&
+            (v.length === 0 || v.length === 128) &&
+            v.every((n) => typeof n === 'number' && Number.isFinite(n))
+          if (
+            !candidate.counts ||
+            !Number.isSafeInteger(candidate.counts.liked) ||
+            candidate.counts.liked < 0 ||
+            !Number.isSafeInteger(candidate.counts.disliked) ||
+            candidate.counts.disliked < 0 ||
+            !candidate.topicWeights ||
+            typeof candidate.topicWeights !== 'object' ||
+            !Object.values(candidate.topicWeights).every(
+              (n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= 8,
+            ) ||
+            !validVector(candidate.likedCentroid) ||
+            !validVector(candidate.dislikedCentroid)
+          ) {
+            return resolve(emptyProfile())
+          }
           resolve(candidate as TasteProfile)
         }
         request.onerror = () => reject(request.error)
       })
-    } finally { db.close() }
-  } catch { return emptyProfile() }
+    } finally {
+      db.close()
+    }
+  } catch {
+    return emptyProfile()
+  }
 }
 
 export async function saveTasteProfile(profile: TasteProfile): Promise<boolean> {
@@ -110,8 +149,12 @@ export async function saveTasteProfile(profile: TasteProfile): Promise<boolean> 
         transaction.onerror = () => reject(transaction.error)
         transaction.onabort = () => reject(transaction.error)
       })
-    } finally { db.close() }
-  } catch { return false }
+    } finally {
+      db.close()
+    }
+  } catch {
+    return false
+  }
 }
 
 export function clearReaderStorage(): void {
@@ -186,11 +229,18 @@ export interface ReaderSnapshot {
 /** Preserve real briefing inputs and newest items, not bundled SAMPLE fallback. */
 export function prepareSnapshot(snapshot: ReaderSnapshot): ReaderSnapshot {
   const real = snapshot.items.filter((item) => !item.sample)
-  const newest = [...real].sort((a, b) => Date.parse(b.pubDate) - Date.parse(a.pubDate))
+  const newest = [...real].sort(
+    (a, b) => Date.parse(b.pubDate) - Date.parse(a.pubDate),
+  )
   const highest = selectDailyBriefingItems(real)
   const selected = real.filter((item) => item.id === snapshot.selectedId)
-  const items = [...new Map([...newest.slice(0, 200), ...highest.slice(0, 5), ...selected]
-    .map((item) => [item.id, item])).values()]
+  const items = [
+    ...new Map(
+      [...newest.slice(0, 200), ...highest.slice(0, 5), ...selected].map(
+        (item) => [item.id, item],
+      ),
+    ).values(),
+  ]
   return { ...snapshot, items }
 }
 
@@ -198,7 +248,9 @@ export function saveReaderSnapshot(snapshot: ReaderSnapshot): Promise<boolean> {
   const prepared = prepareSnapshot(snapshot)
   const write = snapshotWrites.then(async () => {
     try {
-      if (!prepared.items.length || !Number.isFinite(Date.parse(prepared.fetchedAt))) return false
+      if (!prepared.items.length || !Number.isFinite(Date.parse(prepared.fetchedAt))) {
+        return false
+      }
       const cache = await caches.open(OFFLINE_CACHE)
       await cache.put(SNAPSHOT_URL, Response.json(prepared))
       return true
@@ -214,16 +266,30 @@ export async function loadReaderSnapshot(): Promise<ReaderSnapshot | null> {
   try {
     const response = await (await caches.open(OFFLINE_CACHE)).match(SNAPSHOT_URL)
     if (!response) return null
-    const data = await response.json() as ReaderSnapshot
-    if (!Array.isArray(data.items) || !Number.isFinite(Date.parse(data.fetchedAt)) ||
-      !data.pulse || !Array.isArray(data.pulse.hn) || !Array.isArray(data.pulse.github) ||
-      !data.feedHealth || typeof data.selectedFeed !== 'string' ||
+    const data = (await response.json()) as ReaderSnapshot
+    if (
+      !Array.isArray(data.items) ||
+      !Number.isFinite(Date.parse(data.fetchedAt)) ||
+      !data.pulse ||
+      !Array.isArray(data.pulse.hn) ||
+      !Array.isArray(data.pulse.github) ||
+      !data.feedHealth ||
+      typeof data.selectedFeed !== 'string' ||
       (data.selectedId !== null && typeof data.selectedId !== 'string') ||
-      ![...data.items, ...data.pulse.hn, ...data.pulse.github].every((item) =>
-        item && typeof item.id === 'string' && typeof item.title === 'string' &&
-        typeof item.link === 'string' && typeof item.description === 'string' &&
-        typeof item.feedId === 'string' && typeof item.feedTitle === 'string' &&
-        typeof item.pubDate === 'string')) return null
+      ![...data.items, ...data.pulse.hn, ...data.pulse.github].every(
+        (item) =>
+          item &&
+          typeof item.id === 'string' &&
+          typeof item.title === 'string' &&
+          typeof item.link === 'string' &&
+          typeof item.description === 'string' &&
+          typeof item.feedId === 'string' &&
+          typeof item.feedTitle === 'string' &&
+          typeof item.pubDate === 'string',
+      )
+    ) {
+      return null
+    }
     return prepareSnapshot(data)
   } catch {
     return null
@@ -234,9 +300,14 @@ export async function clearOfflineStorage(): Promise<void> {
   const pending = snapshotWrites
   const clear = pending.then(async () => {
     try {
-      await Promise.all([OFFLINE_CACHE, COVER_CACHE, 'rr-rss-v1', 'rr-pages-v1']
-        .map((name) => caches.delete(name)))
-    } catch { /* Cache API unavailable */ }
+      await Promise.all(
+        [OFFLINE_CACHE, COVER_CACHE, 'rr-rss-v1', 'rr-pages-v1'].map((name) =>
+          caches.delete(name),
+        ),
+      )
+    } catch {
+      /* Cache API unavailable */
+    }
   })
   snapshotWrites = clear
   await clear
@@ -249,7 +320,8 @@ export type CoverImages = Record<string, string | null>
  * This helper never intercepts requests and never caches any other API.
  */
 export async function cachedCoverImages(
-  urls: string[], onFresh: (images: CoverImages) => void,
+  urls: string[],
+  onFresh: (images: CoverImages) => void,
 ): Promise<CoverImages> {
   const key = `/__rr-cache/covers?urls=${encodeURIComponent(JSON.stringify([...urls].sort()))}`
   let cache: Cache | undefined
@@ -257,30 +329,49 @@ export async function cachedCoverImages(
   try {
     cache = await caches.open(COVER_CACHE)
     const response = await cache.match(key)
-    if (response) stale = await response.json() as CoverImages
-  } catch { /* network-only fallback */ }
+    if (response) stale = (await response.json()) as CoverImages
+  } catch {
+    /* network-only fallback */
+  }
   if (typeof navigator !== 'undefined' && !navigator.onLine) return stale ?? {}
   const revalidate = async (): Promise<CoverImages> => {
     try {
       const response = await fetch('/api/og-images', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls }), signal: AbortSignal.timeout(5000),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls }),
+        signal: AbortSignal.timeout(5000),
       })
       if (!response.ok) return stale ?? {}
-      const data = await response.json() as { images?: CoverImages }
-      const images = Object.fromEntries(Object.entries(data.images ?? {})
-        .filter(([url, image]) => urls.includes(url) && (image === null || typeof image === 'string')))
+      const data = (await response.json()) as { images?: CoverImages }
+      const images = Object.fromEntries(
+        Object.entries(data.images ?? {}).filter(
+          ([url, image]) =>
+            urls.includes(url) && (image === null || typeof image === 'string'),
+        ),
+      )
       if (cache) {
         try {
           await cache.put(key, Response.json(images))
           const keys = await cache.keys()
-          await Promise.all(keys.slice(0, Math.max(0, keys.length - 40)).map((old) => cache!.delete(old)))
-        } catch { /* quota failure does not discard fresh metadata */ }
+          await Promise.all(
+            keys
+              .slice(0, Math.max(0, keys.length - 40))
+              .map((old) => cache!.delete(old)),
+          )
+        } catch {
+          /* quota failure does not discard fresh metadata */
+        }
       }
       onFresh(images)
       return images
-    } catch { return stale ?? {} }
+    } catch {
+      return stale ?? {}
+    }
   }
-  if (stale) { void revalidate(); return stale }
+  if (stale) {
+    void revalidate()
+    return stale
+  }
   return revalidate()
 }

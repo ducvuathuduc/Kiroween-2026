@@ -52,6 +52,8 @@ test('sanitizeSettings falls back safely on malformed input and preserves valid 
       reducedMotion: 'reduce',
       aiProvider: 'gemini',
       personalBoostEnabled: true,
+      audioVoiceURI: null,
+      audioRate: 1,
     },
   )
   assert.deepEqual(
