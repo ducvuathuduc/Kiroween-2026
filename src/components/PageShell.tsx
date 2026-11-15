@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { motion } from 'motion/react'
-import { routeToPath, type NavigableRoute } from '../lib/routes'
+import { FOOTER_ROUTES, routeToPath, type NavigableRoute } from '../lib/routes'
 import { ScrollArea } from './ui/scroll-area'
 
 interface PageShellProps {
@@ -10,19 +10,6 @@ interface PageShellProps {
   onNavigate: (route: NavigableRoute) => void
   maxWidth?: 'max-w-4xl' | 'max-w-5xl' | 'max-w-6xl'
 }
-
-const FOOTER_LINKS: ReadonlyArray<{ route: NavigableRoute; label: string }> = [
-  { route: 'feed', label: 'Feed' },
-  { route: 'briefing', label: 'Briefing' },
-  { route: 'radar', label: 'Signal Radar' },
-  { route: 'system', label: 'System & Health' },
-  { route: 'docs', label: 'Docs' },
-  { route: 'shortcuts', label: 'Shortcuts' },
-  { route: 'settings', label: 'Settings' },
-  { route: 'about', label: 'About' },
-  { route: 'changelog', label: 'Changelog' },
-  { route: 'privacy', label: 'Privacy Policy' },
-]
 
 export default function PageShell({
   label,
@@ -51,7 +38,7 @@ export default function PageShell({
                 aria-label="Site directory"
                 className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs"
               >
-                {FOOTER_LINKS.map((item) => {
+                {FOOTER_ROUTES.map((item) => {
                   const active = currentRoute === item.route
                   return (
                     <a

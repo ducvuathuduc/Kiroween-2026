@@ -3,6 +3,7 @@ import { safeHttpUrl, summarize } from './format'
 import type { GeminiSummary } from './kiroTask'
 import type { NewsletterFeedRecord } from './newsletter'
 import type { ReaderSettings } from './storage'
+import type { PastReadRecord } from './secondBrain'
 
 export interface FullDataExport {
   app: 'Resurrected Reader'
@@ -14,6 +15,7 @@ export interface FullDataExport {
   newsletters?: NewsletterFeedRecord[]
   readIds: string[]
   savedIds: string[]
+  pastReads?: PastReadRecord[]
   summaries: Record<string, GeminiSummary>
 }
 
@@ -55,6 +57,7 @@ export function buildFullDataExport(params: {
   newsletters?: NewsletterFeedRecord[]
   readIds: string[]
   savedIds: string[]
+  pastReads?: PastReadRecord[]
   summaries: Record<string, GeminiSummary>
   settings: ReaderSettings
   lastVisitIso: string | null
@@ -72,6 +75,9 @@ export function buildFullDataExport(params: {
       : {}),
     readIds: params.readIds,
     savedIds: params.savedIds,
+    ...(params.pastReads && params.pastReads.length > 0
+      ? { pastReads: params.pastReads }
+      : {}),
     summaries: params.summaries,
   }
 }

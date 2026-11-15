@@ -382,13 +382,20 @@ export default function DocsPage({
               9. Reader &amp; AWS Documentation MCP tools
             </h2>
             <p className="text-[13.5px] leading-relaxed text-zinc-700">
-              Connect a Streamable HTTP MCP client to this app’s{' '}
-              <code className="font-mono">/mcp</code> endpoint for eight tools:
-              list feeds, search/get items, summarize, semantic search, discover
-              providers, daily briefing, and Kiro task export. Tools use real
-              default feeds, not your browser-local subscriptions or saved state.
-              AI tools require server credentials and may incur provider charges;
-              missing providers return explicit errors or keyword fallback.
+              Connect a stateless MCP client (spec{' '}
+              <code className="font-mono">2026-07-28</code> +{' '}
+              <code className="font-mono">2025-11-25</code> fallback) to this
+              app’s <code className="font-mono">/mcp</code> endpoint. It ships in
+              an explicit <strong>authless read-only demo scope</strong> (no
+              OAuth 2.1, no write or delete tools) with five{' '}
+              <code className="font-mono">readOnlyHint: true</code> tools:{' '}
+              <code className="font-mono">get_daily_briefing</code>,{' '}
+              <code className="font-mono">get_feed_items</code>,{' '}
+              <code className="font-mono">get_signal_scores</code>,{' '}
+              <code className="font-mono">resurface_past_read</code>, and{' '}
+              <code className="font-mono">list_newsletters</code>. Tools read
+              real public default feeds and shared Worker read-only state, never
+              browser-local subscriptions or sample articles.
             </p>
             <p className="text-[13.5px] leading-relaxed text-zinc-700">
               Separately, this repository configures the AWS Documentation MCP
@@ -399,7 +406,7 @@ export default function DocsPage({
               <code className="font-mono">read_documentation</code>, and{' '}
               <code className="font-mono">recommend</code>):
             </p>
-            <pre className="overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-100">
+            <pre tabIndex={0} role="region" aria-label="AWS Documentation MCP configuration" className="overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-100">
               <code>{`{
   "mcpServers": {
     "aws-docs": {
@@ -430,9 +437,9 @@ export default function DocsPage({
               uses a different wire. No SDK dependency or AI provider key is needed.
             </p>
             <ul className="list-disc space-y-1.5 pl-5 text-[13px] text-zinc-600">
-              <li><code>get_top_items</code>: optional <code>limit</code> (1–50, default 20) and <code>minScore</code> (0–100); shares MCP search_items logic.</li>
-              <li><code>get_briefing</code>: the same top-five selector as the UI and MCP daily_briefing; no automatic paid AI summaries.</li>
-              <li><code>export_kiro_task</code>: supply an <code>id</code> from a live item to get the same three Markdown specs as MCP.</li>
+              <li><code>get_top_items</code>: optional <code>limit</code> (1–50, default 20) and <code>minScore</code> (0–100); shares MCP <code>get_feed_items</code> logic.</li>
+              <li><code>get_briefing</code>: the same top-five selector as the UI and MCP <code>get_daily_briefing</code>; no automatic paid AI summaries.</li>
+              <li><code>export_kiro_task</code>: supply an <code>id</code> from a live item to get the same three Markdown specs as the Kiro task modal.</li>
             </ul>
             <p className="text-[13.5px] leading-relaxed text-zinc-700">
               Each request returns a terminal Task with a JSON DataPart artifact,

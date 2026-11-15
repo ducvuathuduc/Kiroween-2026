@@ -27,7 +27,7 @@ The frontend remains React 19 + Vite 8 + TypeScript 7 (strict), Tailwind CSS v4,
 | --- | --- |
 | `server.ts` | `/api/health`, `/api/providers`, `/api/rss`, `/api/og-images`, `/api/summarize`, `/api/embed`, and `/mcp`; request validation and proxy caches |
 | `server/ai.ts` | AI SDK v7 provider routing: Gemini → OpenAI → Anthropic → Bedrock, preserving direct `@google/genai`; configured providers only |
-| `server/mcp.ts`, `server/items.ts` | Stateless Streamable HTTP, eight Zod-validated tools, real default-feed data and explicit upstream/provider errors |
+| `server/mcp.ts`, `server/readTools.ts`, `server/items.ts` | Stateless SDK v2 `createMcpHandler` (`2026-07-28`), five Zod-validated read-only tools, authless demo scope, and real default-feed data |
 | `src/lib/feeds.ts`, `scoring.ts`, `briefing.ts` | RSS/Atom parsing, deterministic ranking, briefing selectors and command search |
 | `src/lib/kiroTask.ts`, `zip.ts`, `opml.ts`, `export.ts` | Kiro bundles, OPML migration and portable exports |
 | `src/lib/storage.ts`, `src/App.tsx` | Browser-local state, preferences, orchestration, routing and keyboard commands |
@@ -40,7 +40,7 @@ Each dimension is normalized to 0–100. The final score is the rounded, clamped
 
 ### MCP contract
 
-`agents@0.33.0` `createMcpHandler` and `@modelcontextprotocol/server@2.4.0` expose exactly `list_feeds`, `search_items`, `get_item`, `summarize_item`, `semantic_search`, `get_providers`, `daily_briefing`, and `export_kiro_task`. There is no McpAgent, Durable Object, or Workers stdio transport. MCP reads the public default catalog, not browser-local subscriptions or read/saved state. Its daily briefing does not automatically generate paid summaries.
+`@modelcontextprotocol/server@2.4.0` `createMcpHandler` exposes a single stateless `/mcp` endpoint (MCP `2026-07-28` + stateless `2025-11-25` compatibility) with exactly five read-only tools (`readOnlyHint: true`, `destructiveHint: false`): `get_daily_briefing`, `get_feed_items`, `get_signal_scores`, `resurface_past_read`, and `list_newsletters`. There is no `McpAgent`, Durable Object, OAuth 2.1, or write/delete/LLM-mutation MCP tool (authless read-only demo scope). MCP reads the public default catalog and shared Worker read-only state, never browser-local `localStorage` subscriptions or sample articles.
 
 ### Data and cost boundaries
 

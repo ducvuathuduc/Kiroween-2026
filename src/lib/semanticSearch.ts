@@ -6,11 +6,13 @@ import {
   type SemanticVectorRecord,
 } from './storage'
 
+import { cosineSimilarity, DEFAULT_MIN_SIMILARITY } from './vectorMath'
+export { cosineSimilarity, DEFAULT_MIN_SIMILARITY }
+
 export const SEMANTIC_MODEL_ID = 'Xenova/all-MiniLM-L6-v2'
 export const SEMANTIC_MODEL_CACHE_KEY = 'Xenova/all-MiniLM-L6-v2#q8'
 export const SEMANTIC_WEIGHT = 0.6
 export const KEYWORD_WEIGHT = 0.4
-export const DEFAULT_MIN_SIMILARITY = 0.25
 
 export type SemanticWorkerStatus =
   | 'idle'
@@ -61,26 +63,7 @@ export interface EmbedWorkerOutbound {
   error?: string
 }
 
-export function cosineSimilarity(
-  a: ArrayLike<number>,
-  b: ArrayLike<number>,
-): number {
-  if (!a || !b || a.length === 0 || a.length !== b.length) return 0
-  let dot = 0
-  let normA = 0
-  let normB = 0
-  for (let i = 0; i < a.length; i += 1) {
-    const va = a[i] ?? 0
-    const vb = b[i] ?? 0
-    if (!Number.isFinite(va) || !Number.isFinite(vb)) return 0
-    dot += va * vb
-    normA += va * va
-    normB += vb * vb
-  }
-  if (normA <= 0 || normB <= 0) return 0
-  const sim = dot / (Math.sqrt(normA) * Math.sqrt(normB))
-  return Number.isFinite(sim) ? Math.max(-1, Math.min(1, sim)) : 0
-}
+
 
 export function normalizeKeywordScore(
   query: string,
@@ -178,12 +161,19 @@ export function formatItemEmbeddingText(
   return `${item.title}\n${item.feedTitle}\n${cleanDesc}`.trim()
 }
 
+export type EmbeddableItem = Pick<FeedItem, 'id' | 'title' | 'description' | 'feedTitle'>
+
 export interface SemanticSearchClient {
   getState: () => SemanticProgressState
   subscribe: (listener: (state: SemanticProgressState) => void) => () => void
+  getCachedItemVectors: (itemIds: readonly string[]) => Promise<Record<string, number[]>>
+  embedItems: (
+    items: readonly EmbeddableItem[],
+    signal?: AbortSignal,
+  ) => Promise<Record<string, number[]>>
   search: (
     query: string,
-    items: readonly Pick<FeedItem, 'id' | 'title' | 'description' | 'feedTitle'>[],
+    items: readonly EmbeddableItem[],
     signal?: AbortSignal,
   ) => Promise<SemanticSearchResponse>
   resetMemoryCache: () => void
@@ -324,6 +314,89 @@ export function createSemanticSearchClient(
     return worker
   }
 
+  const hydrateCachedVectors = async (itemIds: readonly string[]) => {
+    const uncachedIds = itemIds.filter((id) => !memoryItemVectors.has(id))
+    if (uncachedIds.length > 0) {
+      const stored = await loadSemanticVectors(uncachedIds, SEMANTIC_MODEL_CACHE_KEY)
+      for (const [id, rec] of Object.entries(stored)) {
+        memoryItemVectors.set(id, rec.vec)
+      }
+    }
+  }
+
+  const runWorkerEmbed = async (params: {
+    query: string
+    missingDocs: Array<{ id: string; text: string }>
+    skipQuery: boolean
+    signal?: AbortSignal
+  }): Promise<{ queryVec: number[] | null; docVecs: Record<string, number[]> }> => {
+    const { query, missingDocs, skipQuery, signal } = params
+    if (!state.modelReady && state.status === 'idle') {
+      notify({ status: 'downloading', progress: 0, file: '', error: null })
+    } else if (state.modelReady) {
+      notify({ status: 'embedding', error: null })
+    }
+
+    const activeWorker = await ensureWorker()
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError')
+    }
+
+    const requestId = nextRequestId++
+    const result = await new Promise<{
+      queryVec: number[] | null
+      docVecs: Record<string, number[]>
+    }>((resolve, reject) => {
+      const onAbort = () => {
+        pending.delete(requestId)
+        reject(new DOMException('Aborted', 'AbortError'))
+      }
+      if (signal) {
+        if (signal.aborted) {
+          onAbort()
+          return
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+      }
+      pending.set(requestId, {
+        resolve: (val) => {
+          signal?.removeEventListener('abort', onAbort)
+          resolve(val)
+        },
+        reject: (err) => {
+          signal?.removeEventListener('abort', onAbort)
+          reject(err)
+        },
+      })
+      activeWorker.postMessage({
+        type: 'embed',
+        requestId,
+        query,
+        docs: missingDocs,
+        skipQuery,
+      })
+    })
+
+    const now = Date.now()
+    const newRecords: SemanticVectorRecord[] = []
+    for (const [id, vec] of Object.entries(result.docVecs)) {
+      if (vec.length === 384) {
+        memoryItemVectors.set(id, vec)
+        newRecords.push({
+          itemId: id,
+          vec,
+          model: SEMANTIC_MODEL_CACHE_KEY,
+          updatedAt: now,
+        })
+      }
+    }
+    if (newRecords.length > 0) {
+      void saveSemanticVectors(newRecords)
+    }
+
+    return result
+  }
+
   return {
     getState: () => state,
     subscribe: (listener) => {
@@ -332,6 +405,51 @@ export function createSemanticSearchClient(
       return () => {
         listeners.delete(listener)
       }
+    },
+    getCachedItemVectors: async (itemIds) => {
+      const uniqueIds = [...new Set(itemIds)].slice(0, 120)
+      if (uniqueIds.length === 0) return {}
+      await hydrateCachedVectors(uniqueIds)
+      const out: Record<string, number[]> = {}
+      for (const id of uniqueIds) {
+        const vec = memoryItemVectors.get(id)
+        if (vec) out[id] = vec
+      }
+      return out
+    },
+    embedItems: async (items, signal) => {
+      if (items.length === 0) return {}
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
+      }
+      const candidateItems = items.slice(0, 80)
+      const itemIds = candidateItems.map((it) => it.id)
+      await hydrateCachedVectors(itemIds)
+      if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
+      }
+      const missingDocs = candidateItems
+        .filter((it) => !memoryItemVectors.has(it.id))
+        .map((it) => ({
+          id: it.id,
+          text: formatItemEmbeddingText(it),
+        }))
+
+      if (missingDocs.length > 0) {
+        await runWorkerEmbed({
+          query: '',
+          missingDocs,
+          skipQuery: true,
+          signal,
+        })
+      }
+
+      const out: Record<string, number[]> = {}
+      for (const id of itemIds) {
+        const vec = memoryItemVectors.get(id)
+        if (vec) out[id] = vec
+      }
+      return out
     },
     resetMemoryCache: () => {
       memoryItemVectors.clear()
@@ -360,14 +478,7 @@ export function createSemanticSearchClient(
 
       const candidateItems = items.slice(0, 80)
       const itemIds = candidateItems.map((it) => it.id)
-
-      const uncachedIds = itemIds.filter((id) => !memoryItemVectors.has(id))
-      if (uncachedIds.length > 0) {
-        const stored = await loadSemanticVectors(uncachedIds, SEMANTIC_MODEL_CACHE_KEY)
-        for (const [id, rec] of Object.entries(stored)) {
-          memoryItemVectors.set(id, rec.vec)
-        }
-      }
+      await hydrateCachedVectors(itemIds)
 
       if (signal?.aborted) {
         throw new DOMException('Aborted', 'AbortError')
@@ -384,50 +495,11 @@ export function createSemanticSearchClient(
       let queryVec = cachedQueryVec
 
       if (!queryVec || missingDocs.length > 0) {
-        if (!state.modelReady && state.status === 'idle') {
-          notify({ status: 'downloading', progress: 0, file: '', error: null })
-        } else if (state.modelReady) {
-          notify({ status: 'embedding', error: null })
-        }
-
-        const activeWorker = await ensureWorker()
-        if (signal?.aborted) {
-          throw new DOMException('Aborted', 'AbortError')
-        }
-
-        const requestId = nextRequestId++
-        const result = await new Promise<{
-          queryVec: number[] | null
-          docVecs: Record<string, number[]>
-        }>((resolve, reject) => {
-          const onAbort = () => {
-            pending.delete(requestId)
-            reject(new DOMException('Aborted', 'AbortError'))
-          }
-          if (signal) {
-            if (signal.aborted) {
-              onAbort()
-              return
-            }
-            signal.addEventListener('abort', onAbort, { once: true })
-          }
-          pending.set(requestId, {
-            resolve: (val) => {
-              signal?.removeEventListener('abort', onAbort)
-              resolve(val)
-            },
-            reject: (err) => {
-              signal?.removeEventListener('abort', onAbort)
-              reject(err)
-            },
-          })
-          activeWorker.postMessage({
-            type: 'embed',
-            requestId,
-            query: normalizedQuery,
-            docs: missingDocs,
-            skipQuery: Boolean(cachedQueryVec),
-          })
+        const result = await runWorkerEmbed({
+          query: normalizedQuery,
+          missingDocs,
+          skipQuery: Boolean(cachedQueryVec),
+          signal,
         })
 
         if (result.queryVec && result.queryVec.length === 384) {
@@ -437,23 +509,6 @@ export function createSemanticSearchClient(
             const firstKey = memoryQueryVectors.keys().next().value
             if (firstKey) memoryQueryVectors.delete(firstKey)
           }
-        }
-
-        const now = Date.now()
-        const newRecords: SemanticVectorRecord[] = []
-        for (const [id, vec] of Object.entries(result.docVecs)) {
-          if (vec.length === 384) {
-            memoryItemVectors.set(id, vec)
-            newRecords.push({
-              itemId: id,
-              vec,
-              model: SEMANTIC_MODEL_CACHE_KEY,
-              updatedAt: now,
-            })
-          }
-        }
-        if (newRecords.length > 0) {
-          void saveSemanticVectors(newRecords)
         }
       }
 

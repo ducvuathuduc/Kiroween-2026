@@ -10,5 +10,18 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/mcp", "/.well-known/agent-card.json", "/a2a", "/a2a/*", "/rss/*", "/atom/*", "/json/*"]
   },
+  "ai": { "binding": "AI" },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "resurrected-reader-second-brain"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BRIEFING_AUDIO_BUCKET",
+      "bucket_name": "resurrected-reader-briefing-audio"
+    }
+  ],
   "observability": { "enabled": true }
 }

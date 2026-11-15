@@ -42,21 +42,21 @@ Start the development server with the orb supervisor, not from a lifecycle scrip
 `amp orb service start reader --command 'npm run dev' --portal`.
 Run tests with `node --import tsx --test tests/*.test.ts`.
 
-### MCP access
+### MCP access (authless read-only demo scope)
 
-The server exposes `/mcp` using stateless Streamable HTTP (`agents@0.33.0` and
-`@modelcontextprotocol/server@2.4.0`). Its eight tools are `list_feeds`,
-`search_items`, `get_item`, `summarize_item`, `semantic_search`, `get_providers`,
-`daily_briefing`, and `export_kiro_task`. Search returns current item IDs for
-retrieval, summarization, and Markdown spec export.
+The server exposes a single stateless `/mcp` endpoint using the MCP TypeScript SDK v2 `createMcpHandler` (`@modelcontextprotocol/server@2.4.0`), targeting **MCP specification `2026-07-28`** with stateless `2025-11-25` fallback compatibility. There is **no `McpAgent`**, **no Durable Object**, and **no write/delete tools**.
 
-MCP reads the three default public feeds, not a browser's local subscriptions or
-saved state. Feed errors are reported; sample articles are never returned.
-AI calls require server credentials and may incur provider charges. Without
-credentials, summaries return an explicit error and semantic search uses keyword
-matching. The test suite smoke-tests all tools with real public RSS data and
-disables AI credentials in its own process to avoid charges, so it needs network
-access but no secrets. No deployment is performed by these commands.
+**Authless Read-Only Demo Scope:** No full OAuth 2.1 flow is configured on `/mcp`. To keep unauthenticated public access safe, the server operates in an explicit **authless read-only demo scope**: every tool is annotated `readOnlyHint: true` / `destructiveHint: false` and disclosed as read-only in its tool description.
+
+Its **five read-only tools** are:
+
+- `get_daily_briefing` — top deduplicated live public-feed items (default `5`) via deterministic 4D ranking (no paid AI calls).
+- `get_feed_items` — list/filter live items from the three public default feeds (`aws-news`, `aws-ml`, `hn`) by `query`, `feedId`, `minScore`, and `limit`.
+- `get_signal_scores` — inspect deterministic 4D signal weights (`Relevance 42% / Recency 24% / Authority 18% / Novelty 16%`), score histogram, feed activity, or per-item scoring cues.
+- `resurface_past_read` — match caller-supplied read/saved `pastReads` (and Vectorize when bound) against a query or live story with honest `workers-ai-vectorize` vs `topic-overlap` labeling and explicit `why` reasons.
+- `list_newsletters` — inspect newsletter bridge feeds registered on the Worker (with optional bounded entry previews) without mutating state.
+
+MCP reads public default feeds and shared Worker read-only state, not a browser's `localStorage` subscriptions or sample articles. Feed errors are reported honestly; sample articles are never returned. The test suite verifies all five read-only tools against real public RSS data with AI provider keys cleared so it requires network access but no secrets. No deployment is performed by these commands.
 
 ## Stack
 

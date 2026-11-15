@@ -1,0 +1,11 @@
+# Tasks — Live AI + Vectorize Second Brain
+
+- [x] Read `src/lib/secondBrain.ts`, `src/lib/semanticSearch.ts`, `src/workers/embed.worker.ts`, `server.ts`, `wrangler.jsonc`, `server/ai.ts`, `src/App.tsx`, `ReaderPane.tsx`, `FeedList.tsx`, `DailyBriefingView.tsx`, and `docs/modern-web-guidance/guides/{accessibility/accessibility.md, ui-components/card.md}`.
+- [x] Author `.kiro/specs/live-ai-workers/{requirements.md, design.md, tasks.md}` before writing code.
+- [x] Configure Cloudflare Workers AI & Vectorize bindings in `wrangler.jsonc` (`AI`, `VECTORIZE`) and verify `@cloudflare/vite-plugin` build compatibility.
+- [x] Implement `server/liveAi.ts` with surviving models only (`@cf/meta/llama-3.2-1b-instruct`, `@cf/baai/bge-m3`, `@cf/baai/bge-reranker-base`), honest extractive summary fallback, async-only Vectorize ingest (`waitUntil` / Queue / Cron), and Vectorize `topK: 10` → reranker top `5` → hybrid keyword fallback → dedupe + recency decay + Signal Radar boost + explicit `why` reasons.
+- [x] Wire `POST /api/ai/summarize`, `POST /api/ai/embed`, and `POST /api/ai/resurface` plus async `queue` handler in `server.ts` without breaking existing `/api/summarize` or `/api/embed` contracts.
+- [x] Implement `src/lib/tasteVector.ts` with 1024-dim decay-weighted mean taste vector and `0.5 * cosine(taste) + 0.5 * Signal Radar + 1 explore slot` feed ranking without mutating deterministic 4D scores.
+- [x] Wire `/api/ai/summarize`, async `/api/ai/embed` ingest, `/api/ai/resurface`, and taste-vector feed ranking cleanly into `src/lib/summarize.ts`, `src/lib/kiroTask.ts`, `src/App.tsx`, `src/components/ReaderPane.tsx`, `src/components/DailyBriefingView.tsx`, `src/components/FeedList.tsx`, and `src/components/ItemList.tsx`.
+- [x] Add thorough unit tests in `tests/liveAi.test.ts` covering Workers AI TL;DR + extractive fallback, `@cf/baai/bge-m3` 1024-dim + async `waitUntil` ingest, Vectorize + `@cf/baai/bge-reranker-base` resurface pipeline, and taste-vector + explore-slot ranking.
+- [x] Verify `npx tsc --noEmit`, `npx tsc -p tsconfig.node.json --noEmit`, `npx tsx --test tests/*.test.ts`, `npm run lint`, `npm run build`, and headless Chromium preview verification (`npm run preview`) with zero console errors.

@@ -9,6 +9,7 @@ import {
 } from '../src/lib/briefing'
 import type { FeedItem, FeedSource } from '../src/lib/feeds'
 import { SIGNAL_DIMENSION_META } from '../src/lib/scoring'
+import { parseSummarizeResponse } from '../src/lib/summarize'
 
 function makeItem(overrides: Partial<FeedItem> & { id: string }): FeedItem {
   return {
@@ -82,4 +83,43 @@ test('searchCommandTargets returns matching views, feeds, and items', () => {
 
   const viewResults = searchCommandTargets({ feeds, items, query: 'briefing' })
   assert.ok(viewResults.some((r) => r.kind === 'view' && r.viewId === 'briefing'))
+})
+
+test('parseSummarizeResponse rejects HTML fallback cleanly without SyntaxError', async () => {
+  const htmlResponse = new Response('<!doctype html><html><body>SPA</body></html>', {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  })
+  await assert.rejects(
+    () => parseSummarizeResponse(htmlResponse),
+    (err: unknown) => {
+      assert.ok(err instanceof Error)
+      assert.doesNotMatch(err.message, /Unexpected token/i)
+      assert.match(err.message, /HTML instead of JSON/i)
+      return true
+    },
+  )
+
+  const errJsonResponse = new Response(
+    JSON.stringify({ error: 'No AI provider key is configured on the server.' }),
+    { status: 503, headers: { 'Content-Type': 'application/json' } },
+  )
+  await assert.rejects(
+    () => parseSummarizeResponse(errJsonResponse),
+    /No AI provider key is configured/,
+  )
+
+  const okResponse = new Response(
+    JSON.stringify({
+      tldr: 'Concise summary.',
+      takeaways: ['Point one', 'Point two'],
+      whyMatters: 'Helps AWS builders.',
+      provider: 'gemini',
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  )
+  const parsed = await parseSummarizeResponse(okResponse)
+  assert.equal(parsed.tldr, 'Concise summary.')
+  assert.deepEqual(parsed.takeaways, ['Point one', 'Point two'])
+  assert.equal(parsed.provider, 'gemini')
 })

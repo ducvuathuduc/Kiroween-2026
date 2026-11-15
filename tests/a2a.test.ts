@@ -130,22 +130,21 @@ test('live A2A skills equal MCP and UI functions for the same default-feed items
   const top = artifact(topTask) as { items: FeedItem[]; errors: unknown[] }
   assert.ok(top.items.length > 0)
   assert.ok(top.items.every((item) => !item.sample && /^https?:/.test(item.link)))
-  assert.deepEqual(top, await mcp('search_items', { limit: 50 }))
+  assert.deepEqual(top, await mcp('get_feed_items', { limit: 50 }))
   const briefingTask = await task({ skill: 'get_briefing' })
   assert.notEqual(briefingTask.id, topTask.id)
   assert.notEqual(briefingTask.contextId, topTask.contextId)
   const briefing = artifact(briefingTask)
-  assert.deepEqual(briefing, await mcp('daily_briefing'))
+  assert.deepEqual(briefing, await mcp('get_daily_briefing'))
   // In-process: full exact cache; built Worker: compare selector over that same
   // Worker's ranked top-50 pool (more than enough for the top-five default feeds).
   const loaded = process.env.READER_TEST_URL ? top : await loadItems()
   // Compare wire JSON: optional undefined imageUrl fields are omitted in JSON.
   assert.deepEqual(briefing, JSON.parse(JSON.stringify({ items: selectDailyBriefingItems(loaded.items), errors: loaded.errors })))
   const filtered = artifact(await task({ skill: 'get_top_items', limit: 2, minScore: 70 }))
-  assert.deepEqual(filtered, await mcp('search_items', { limit: 2, minScore: 70 }))
+  assert.deepEqual(filtered, await mcp('get_feed_items', { limit: 2, minScore: 70 }))
   const item = top.items[0]
   const bundle = artifact(await task({ skill: 'export_kiro_task', id: item.id }))
-  assert.deepEqual(bundle, await mcp('export_kiro_task', { id: item.id }))
   assert.deepEqual(bundle, buildKiroSpecBundle(item))
   const failed = await task({ skill: 'export_kiro_task', id: 'missing-item-not-a-real-feed-id' })
   assert.equal(failed.status.state, 'failed')

@@ -1,0 +1,11 @@
+# Tasks — Spoken-Script Daily Briefing + TTS
+
+- [x] Read `src/lib/briefing.ts`, `src/lib/tts.ts`, `src/components/DailyBriefingView.tsx`, `src/App.tsx`, `src/components/TopBar.tsx`, `server.ts`, `wrangler.jsonc`, `/skills/system_skills/gemini_api/references/speech_and_audio.md`, and `docs/modern-web-guidance/guides/{accessibility/accessibility.md, html/html.md, ui-components/toolbar.md}`.
+- [x] Author `.kiro/specs/briefing-audio/{requirements.md, design.md, tasks.md}` before implementing.
+- [x] Install `@breezystack/lamejs` for pure-JS 24kHz mono PCM-to-MP3 encoding compatible with Cloudflare Workers and Node.js.
+- [x] Implement `src/lib/spokenScript.ts`: single-narrator spoken-script rewrite (zero URLs/links, spoken numbers/dates/versions/scores, short sentences, ~900–1,200 words / 6–8 min budget, strict grounding, segment breakdown).
+- [x] Implement `server/briefingAudio.ts`: WAV-to-PCM extraction, MP3 encoding (`@breezystack/lamejs`), `gemini-3.8-flash-lite-tts` synthesis (strictly no OpenAI `tts-1`/`gpt-4o-mini-tts` and no MeloTTS), deterministic R2 caching (`get`/`put`), optional `gemini-4-hydrogen` script polish with deterministic sanitization, and honest HTTP `503` response when unconfigured.
+- [x] Wire `GET /api/briefing/audio/status`, `POST /api/briefing/script`, `POST /api/briefing/audio`, and `GET /api/briefing/audio/:key` in `server.ts` plus optional `BRIEFING_AUDIO_BUCKET` binding in `wrangler.jsonc` (verifying `vite build` / `@cloudflare/vite-plugin` compatibility).
+- [x] Extend `src/lib/tts.ts`, `src/App.tsx`, and `src/components/DailyBriefingView.tsx` to wire Play/Pause/Stop, Voice selector (Gemini 3.8 Flash-Lite TTS + Web Speech fallback), Speed slider, spoken-script transcript `<details>`, and honest mode labeling without rebuilding the player UI.
+- [x] Add thorough unit tests in `tests/briefingAudio.test.ts` covering spoken-script rewrite, PCM-to-MP3 encoding, `gemini-3.8-flash-lite-tts` + R2 hit/miss caching, prohibited-model absence, and honest `503` / Web Speech fallback.
+- [x] Verify `npx tsc -p tsconfig.app.json --noEmit`, `npx tsc -p tsconfig.node.json --noEmit`, `npx tsx --test tests/*.test.ts`, `npm run lint`, `npm run build`, and headless Chromium preview verification via `playwright-cli` with zero console errors; mark tasks complete.

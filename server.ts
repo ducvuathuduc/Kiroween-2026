@@ -6,8 +6,21 @@ import {
   semanticScoreWithFallback,
   summarizeWithFallback,
 } from './server/ai.ts'
+import {
+  embedWithWorkersAi,
+  processEmbedQueueMessages,
+  resurfaceSecondBrain,
+  summarizeWithWorkersAi,
+  type EmbedIngestItem,
+  type ExecutionCtxLike,
+  type LiveAiEnv,
+  type QueueBinding,
+  type ResurfaceCandidateInput,
+  type VectorizeIndexBinding,
+  type WorkersAiBinding,
+} from './server/liveAi.ts'
 import { sanitizeProviderId } from './src/lib/providers.ts'
-import { mcpHandler } from './server/mcp.ts'
+import { createReaderMcpHandler } from './server/mcp.ts'
 import { a2aApp } from './server/a2a.ts'
 import { askResponse } from './server/ask.ts'
 import { extractArticle } from './server/extract.ts'
@@ -22,6 +35,14 @@ import {
   renderRssFeed,
   type NewsletterFeedRecord,
 } from './src/lib/newsletter.ts'
+import type { SpokenBriefingInputItem } from './src/lib/spokenScript.ts'
+import {
+  generateSpokenBriefingScript,
+  getBriefingTtsStatus,
+  isValidBriefingCacheFilename,
+  synthesizeBriefingAudio,
+  type R2BucketBinding,
+} from './server/briefingAudio.ts'
 
 interface SummarizeRequestBody {
   title?: unknown
@@ -46,6 +67,17 @@ const rssCache = new Map<string, { xml: string; contentType: string; expiresAt: 
 const RSS_CACHE_TTL_MS = 5 * 60_000
 const MAX_RSS_BYTES = 2 * 1024 * 1024
 const newsletterStore = createMemoryNewsletterStore()
+const mcpRequestEnv = new WeakMap<Request, LiveAiEnv>()
+const mcpHandler = createReaderMcpHandler({
+  newsletterStore,
+  getEnv: (req) => (req ? mcpRequestEnv.get(req) : undefined),
+})
+const MCP_CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers':
+    'Content-Type, Accept, MCP-Protocol-Version, MCP-Method, MCP-Name, Mcp-Session-Id',
+}
 
 function isPublicHttpUrl(raw: string): string | null {
   try {
@@ -164,15 +196,35 @@ async function resolveOgImage(rawUrl: string): Promise<string | null> {
 }
 
 const app = new Hono<{
-  Bindings: { ASSETS?: { fetch(request: Request): Promise<Response> } }
+  Bindings: {
+    ASSETS?: { fetch(request: Request): Promise<Response> }
+    AI?: WorkersAiBinding
+    VECTORIZE?: VectorizeIndexBinding
+    EMBED_QUEUE?: QueueBinding
+    BRIEFING_AUDIO_BUCKET?: R2BucketBinding
+  }
   Variables: { body: unknown }
 }>()
+
+function tryGetExecutionCtx(c: { executionCtx: ExecutionCtxLike }): ExecutionCtxLike | undefined {
+  try {
+    return c.executionCtx
+  } catch {
+    return undefined
+  }
+}
 
 // Keep JSON-RPC parse errors independent of the existing API/MCP body contract.
 app.route('/', a2aApp)
 
-const limitJsonBody = bodyLimit({ maxSize: 192 * 1024 })
-const limitNewsletterJsonBody = bodyLimit({ maxSize: MAX_RAW_EMAIL_BYTES + 256 * 1024 })
+const limitJsonBody = bodyLimit({
+  maxSize: 192 * 1024,
+  onError: (c) => c.json({ error: 'Request exceeds the 192 KiB limit.' }, 413),
+})
+const limitNewsletterJsonBody = bodyLimit({
+  maxSize: MAX_RAW_EMAIL_BYTES + 256 * 1024,
+  onError: (c) => c.json({ error: 'Newsletter payload exceeds the size limit.' }, 413),
+})
 app.use('*', async (c, next) => {
   if (!/^application\/json(?:;|$)/i.test(c.req.header('content-type') ?? '')) {
     c.set('body', {})
@@ -195,7 +247,37 @@ app.use('*', async (c, next) => {
   })
 })
 
-app.all('/mcp', (c) => mcpHandler.fetch(c.req.raw, { parsedBody: c.get('body') }))
+app.options(
+  '/mcp',
+  () => new Response(null, { status: 204, headers: MCP_CORS_HEADERS }),
+)
+app.all('/mcp', async (c) => {
+  if (c.env) {
+    mcpRequestEnv.set(c.req.raw, {
+      AI: c.env.AI,
+      VECTORIZE: c.env.VECTORIZE,
+      EMBED_QUEUE: c.env.EMBED_QUEUE,
+    })
+  }
+  const parsedBody =
+    c.req.method === 'POST' &&
+    /^application\/json(?:;|$)/i.test(c.req.header('content-type') ?? '')
+      ? c.get('body')
+      : undefined
+  const res = await mcpHandler.fetch(
+    c.req.raw,
+    parsedBody !== undefined ? { parsedBody } : undefined,
+  )
+  const headers = new Headers(res.headers)
+  for (const [key, value] of Object.entries(MCP_CORS_HEADERS)) {
+    if (!headers.has(key)) headers.set(key, value)
+  }
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers,
+  })
+})
 
 app.post('/api/ask', (c) => askResponse(c.get('body'), c.req.raw.signal))
 
@@ -379,6 +461,285 @@ app.post('/api/embed', async (c) => {
   return c.json(result)
 })
 
+app.post('/api/ai/summarize', async (c) => {
+  const body = (c.get('body') ?? {}) as SummarizeRequestBody
+  const title = typeof body.title === 'string' ? body.title.trim() : ''
+  const feedTitle =
+    typeof body.feedTitle === 'string' ? body.feedTitle.trim() : ''
+  const link = typeof body.link === 'string' ? body.link.trim() : ''
+  const content =
+    typeof body.content === 'string' ? body.content.trim().slice(0, 6000) : ''
+
+  if (!title || !content) {
+    return c.json({ error: 'Article title and content are required.' }, 400)
+  }
+
+  const result = await summarizeWithWorkersAi({
+    title,
+    feedTitle,
+    link,
+    content,
+    preferredProvider: body.provider,
+    env: c.env,
+  })
+  return c.json(result)
+})
+
+app.post('/api/ai/embed', async (c) => {
+  const body = (c.get('body') ?? {}) as {
+    texts?: unknown
+    items?: unknown
+    ingest?: unknown
+    ingestOnly?: unknown
+  }
+
+  const texts = Array.isArray(body.texts)
+    ? body.texts
+        .filter(
+          (entry): entry is { id: string; text: string } =>
+            Boolean(entry) &&
+            typeof entry === 'object' &&
+            typeof (entry as { id?: unknown }).id === 'string' &&
+            typeof (entry as { text?: unknown }).text === 'string',
+        )
+        .slice(0, 48)
+    : []
+
+  const items = Array.isArray(body.items)
+    ? body.items
+        .filter(
+          (entry): entry is EmbedIngestItem =>
+            Boolean(entry) &&
+            typeof entry === 'object' &&
+            typeof (entry as { id?: unknown }).id === 'string' &&
+            typeof (entry as { title?: unknown }).title === 'string' &&
+            typeof (entry as { description?: unknown }).description === 'string',
+        )
+        .slice(0, 48)
+    : []
+
+  const ingest = body.ingest === true
+  const ingestOnly = body.ingestOnly === true
+  const result = await embedWithWorkersAi({
+    texts,
+    items,
+    ingest,
+    ingestOnly,
+    env: c.env,
+    executionCtx: tryGetExecutionCtx(c),
+  })
+  return c.json(result, ingestOnly && result.queuedIngest ? 202 : 200)
+})
+
+app.post('/api/ai/resurface', async (c) => {
+  const body = (c.get('body') ?? {}) as {
+    query?: unknown
+    topStory?: unknown
+    candidates?: unknown
+    minAgeDays?: unknown
+    limit?: unknown
+    nowMs?: unknown
+  }
+
+  const query = typeof body.query === 'string' ? body.query.trim() : ''
+  const rawTop =
+    body.topStory && typeof body.topStory === 'object'
+      ? (body.topStory as {
+          id?: unknown
+          title?: unknown
+          description?: unknown
+          feedTitle?: unknown
+        })
+      : null
+  const topStory =
+    rawTop && typeof rawTop.id === 'string' && typeof rawTop.title === 'string'
+      ? {
+          id: rawTop.id,
+          title: rawTop.title,
+          description:
+            typeof rawTop.description === 'string' ? rawTop.description : undefined,
+          feedTitle:
+            typeof rawTop.feedTitle === 'string' ? rawTop.feedTitle : undefined,
+        }
+      : undefined
+
+  const candidates = Array.isArray(body.candidates)
+    ? body.candidates
+        .filter(
+          (entry): entry is ResurfaceCandidateInput =>
+            Boolean(entry) &&
+            typeof entry === 'object' &&
+            typeof (entry as { id?: unknown }).id === 'string' &&
+            typeof (entry as { title?: unknown }).title === 'string',
+        )
+        .slice(0, 80)
+    : []
+
+  const result = await resurfaceSecondBrain(
+    {
+      query: query || topStory?.title || '',
+      topStory,
+      candidates,
+      minAgeDays:
+        typeof body.minAgeDays === 'number' ? body.minAgeDays : undefined,
+      limit: typeof body.limit === 'number' ? body.limit : undefined,
+      nowMs: typeof body.nowMs === 'number' ? body.nowMs : undefined,
+    },
+    c.env,
+  )
+  return c.json(result)
+})
+
+function sanitizeSpokenBriefingItems(raw: unknown): SpokenBriefingInputItem[] {
+  if (!Array.isArray(raw)) return []
+  const items: SpokenBriefingInputItem[] = []
+  for (const entry of raw.slice(0, 5)) {
+    if (!entry || typeof entry !== 'object') continue
+    const rec = entry as Record<string, unknown>
+    const id = typeof rec.id === 'string' ? rec.id.trim() : ''
+    const title = typeof rec.title === 'string' ? rec.title.trim() : ''
+    if (!id || !title) continue
+    const takeaways = Array.isArray(rec.takeaways)
+      ? rec.takeaways
+          .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+          .slice(0, 4)
+      : undefined
+    const dims =
+      rec.scoreDimensions && typeof rec.scoreDimensions === 'object'
+        ? (rec.scoreDimensions as SpokenBriefingInputItem['scoreDimensions'])
+        : undefined
+    items.push({
+      id,
+      title,
+      url: typeof rec.url === 'string' ? rec.url : undefined,
+      score:
+        typeof rec.score === 'number' && Number.isFinite(rec.score)
+          ? rec.score
+          : 50,
+      source:
+        typeof rec.source === 'string' && rec.source.trim()
+          ? rec.source.trim()
+          : 'Feed',
+      pubDate: typeof rec.pubDate === 'string' ? rec.pubDate : undefined,
+      tldr: typeof rec.tldr === 'string' ? rec.tldr : '',
+      takeaways,
+      whyMatters:
+        typeof rec.whyMatters === 'string' ? rec.whyMatters : undefined,
+      description:
+        typeof rec.description === 'string'
+          ? rec.description.slice(0, 4000)
+          : undefined,
+      extractedText:
+        typeof rec.extractedText === 'string'
+          ? rec.extractedText.slice(0, 6000)
+          : undefined,
+      scoreDimensions: dims,
+    })
+  }
+  return items
+}
+
+app.get('/api/briefing/audio/status', (c) => {
+  return c.json(getBriefingTtsStatus(c.env))
+})
+
+app.post('/api/briefing/script', async (c) => {
+  const body = (c.get('body') ?? {}) as {
+    items?: unknown
+    nowIso?: unknown
+    useAiPolish?: unknown
+  }
+  const items = sanitizeSpokenBriefingItems(body.items)
+  if (items.length === 0) {
+    return c.json({ error: 'At least one briefing item is required.' }, 400)
+  }
+  const result = await generateSpokenBriefingScript({
+    items,
+    nowIso: typeof body.nowIso === 'string' ? body.nowIso : undefined,
+    useAiPolish: body.useAiPolish === true,
+  })
+  return c.json(result)
+})
+
+app.post('/api/briefing/audio', async (c) => {
+  const body = (c.get('body') ?? {}) as {
+    items?: unknown
+    script?: unknown
+    voice?: unknown
+    nowIso?: unknown
+  }
+  const items = sanitizeSpokenBriefingItems(body.items)
+  const script = typeof body.script === 'string' ? body.script : undefined
+
+  const result = await synthesizeBriefingAudio({
+    items,
+    script,
+    voice: body.voice,
+    nowIso: typeof body.nowIso === 'string' ? body.nowIso : undefined,
+    env: c.env,
+  })
+
+  if (!result.ok) {
+    return c.json(
+      {
+        error: result.error,
+        mode: result.mode,
+        model: result.model,
+        cacheStatus: result.cacheStatus,
+        cacheKey: result.cacheKey,
+        r2Bound: result.r2Bound,
+        wordCount: result.wordCount,
+        estimatedMinutes: result.estimatedMinutes,
+        spokenScript: result.spokenScript,
+      },
+      result.status,
+    )
+  }
+
+  const audioBuffer = result.mp3.buffer.slice(
+    result.mp3.byteOffset,
+    result.mp3.byteOffset + result.mp3.byteLength,
+  ) as ArrayBuffer
+
+  return new Response(audioBuffer, {
+    status: 200,
+    headers: {
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': String(result.mp3.byteLength),
+      'Cache-Control': 'public, max-age=86400',
+      'X-Briefing-Cache': result.cacheStatus,
+      'X-Briefing-TTS-Model': result.model,
+      'X-Briefing-Voice': result.voice,
+      'X-Briefing-Word-Count': String(result.wordCount),
+      'X-Briefing-Estimated-Minutes': String(result.estimatedMinutes),
+      'X-Briefing-Audio-Key': result.cacheKey,
+    },
+  })
+})
+
+app.get('/api/briefing/audio/:filename', async (c) => {
+  const filename = c.req.param('filename')
+  const key = isValidBriefingCacheFilename(filename)
+  if (!key || !c.env?.BRIEFING_AUDIO_BUCKET) {
+    return c.json({ error: 'Cached briefing audio not found.' }, 404)
+  }
+  const obj = await c.env.BRIEFING_AUDIO_BUCKET.get(key)
+  if (!obj) {
+    return c.json({ error: 'Cached briefing audio not found.' }, 404)
+  }
+  const buffer = await obj.arrayBuffer()
+  return new Response(buffer, {
+    status: 200,
+    headers: {
+      'Content-Type': obj.httpMetadata?.contentType || 'audio/mpeg',
+      'Content-Length': String(buffer.byteLength),
+      'Cache-Control': 'public, max-age=86400',
+      'X-Briefing-Cache': 'HIT',
+      'X-Briefing-Audio-Key': key,
+    },
+  })
+})
+
 app.get('/api/newsletter/feeds', async (c) => {
   const feeds = await newsletterStore.listFeeds()
   return c.json({ feeds })
@@ -556,6 +917,20 @@ app.get('/json/:feedId', (c) =>
   ),
 )
 
+app.all('/api/*', (c) => c.json({ error: 'API endpoint not found.' }, 404))
+app.onError((_err, c) =>
+  c.req.path.startsWith('/api/')
+    ? c.json({ error: 'Internal server error.' }, 500)
+    : c.text('Internal Server Error', 500),
+)
+
 app.all('*', (c) => c.env?.ASSETS ? c.env.ASSETS.fetch(c.req.raw) : c.notFound())
+
+export async function queue(
+  batch: { messages: ReadonlyArray<{ body?: { items?: EmbedIngestItem[]; embeddings?: Record<string, number[]> } }> },
+  env: LiveAiEnv,
+): Promise<void> {
+  await processEmbedQueueMessages(batch.messages, env)
+}
 
 export default app

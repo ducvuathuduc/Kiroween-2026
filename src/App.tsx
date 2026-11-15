@@ -4,8 +4,10 @@ import AboutPage from './components/AboutPage'
 import AskPanel from './components/AskPanel'
 import ChangelogPage from './components/ChangelogPage'
 import CommandPalette from './components/CommandPalette'
+import ContactPage from './components/ContactPage'
 import DailyBriefingView from './components/DailyBriefingView'
 import DocsPage from './components/DocsPage'
+import FaqPage from './components/FaqPage'
 import FeedList from './components/FeedList'
 import ItemList, { type Filter } from './components/ItemList'
 import KeyboardShortcutsModal from './components/KeyboardShortcutsModal'
@@ -16,9 +18,16 @@ import ReaderPane from './components/ReaderPane'
 import SettingsPage from './components/SettingsPage'
 import ShortcutsPage from './components/ShortcutsPage'
 import SignalRadarView from './components/SignalRadarView'
+import TermsPage from './components/TermsPage'
 import TopBar, { type SortBy } from './components/TopBar'
+import UserGuidePage from './components/UserGuidePage'
 import { TooltipProvider } from './components/ui/tooltip'
-import { countNewSince, type FeedHealth } from './lib/briefing'
+import {
+  countNewSince,
+  runWithConcurrency,
+  selectDailyBriefingItems,
+  type FeedHealth,
+} from './lib/briefing'
 import {
   buildFullDataExport,
   downloadJsonExport,
@@ -61,32 +70,55 @@ import { getSampleItems } from './lib/sampleData'
 import { applyPersonalBoost, explainScore } from './lib/scoring'
 import {
   createSemanticSearchClient,
+  formatItemEmbeddingText,
   isLocalSemanticSupported,
   rankItemsHybrid,
   type SemanticProgressState,
 } from './lib/semanticSearch'
+import {
+  findResurfacedReads,
+  pastReadToFeedItem,
+  rankRelatedPastReads,
+  type PastReadRecord,
+  type ResurfacedMatch,
+  type SecondBrainMatch,
+} from './lib/secondBrain'
+import {
+  computeDecayWeightedTasteVector,
+  rankFeedWithTasteVector,
+} from './lib/tasteVector'
 import {
   cachedCoverImages,
   clearReaderStorage,
   DEFAULT_SETTINGS,
   initSessionVisitTimestamp,
   loadNewsletterFeeds,
+  loadPastReads,
   loadSettings,
   loadTasteProfile,
   loadReaderSnapshot,
   loadStorage,
   recordVisitTimestamp,
   saveNewsletterFeeds,
+  savePastReads,
   saveStorage,
   saveTasteProfile,
   saveReaderSnapshot,
   SETTINGS_STORAGE_KEY,
+  unmarkSavedPastRead,
+  upsertPastRead,
   type ReaderSettings,
 } from './lib/storage'
+import { isJsonResponse, parseSummarizeResponse } from './lib/summarize'
+import { buildSpokenBriefingScript } from './lib/spokenScript'
 import {
+  clampSpeechRate,
   createBriefingPlayer,
+  isGeminiVoiceSelection,
+  type AudioPlaybackEngineMode,
   type BriefingPlaybackStatus,
   type BriefingPlayer,
+  type BriefingTtsStatus,
   type DailyBriefingItem,
 } from './lib/tts'
 
@@ -141,12 +173,44 @@ export default function App() {
   }, [tasteReady, settings.personalBoostEnabled, updateTaste])
 
   const briefingPlayerRef = useRef<BriefingPlayer | null>(null)
+  const mp3AudioRef = useRef<HTMLAudioElement | null>(null)
+  const mp3ObjectUrlRef = useRef<string | null>(null)
+  const mp3ItemsRef = useRef<DailyBriefingItem[]>([])
+  const audioRunIdRef = useRef<number>(0)
+  const audioAbortRef = useRef<AbortController | null>(null)
   const [audioStatus, setAudioStatus] = useState<BriefingPlaybackStatus>('idle')
+  const [audioPreparing, setAudioPreparing] = useState(false)
   const [audioItemIndex, setAudioItemIndex] = useState<number>(-1)
   const [audioItemId, setAudioItemId] = useState<string | null>(null)
   const [audioItemTotal, setAudioItemTotal] = useState<number>(0)
   const [audioItemTitle, setAudioItemTitle] = useState<string>('')
   const [audioError, setAudioError] = useState<string | null>(null)
+  const [audioCacheStatus, setAudioCacheStatus] = useState<'HIT' | 'MISS' | 'BYPASS' | null>(null)
+  const [audioModeNote, setAudioModeNote] = useState<string | null>(null)
+  const [activeAudioEngine, setActiveAudioEngine] = useState<AudioPlaybackEngineMode | null>(null)
+  const [ttsStatus, setTtsStatus] = useState<BriefingTtsStatus>({
+    available: false,
+    model: 'gemini-3.8-flash-lite-tts',
+    r2Bound: false,
+    defaultVoice: 'Kore',
+    voices: [],
+  })
+
+  const releaseMp3Audio = useCallback(() => {
+    if (mp3AudioRef.current) {
+      mp3AudioRef.current.pause()
+      mp3AudioRef.current.onended = null
+      mp3AudioRef.current.onerror = null
+      mp3AudioRef.current.ontimeupdate = null
+      mp3AudioRef.current.src = ''
+      mp3AudioRef.current = null
+    }
+    if (mp3ObjectUrlRef.current) {
+      URL.revokeObjectURL(mp3ObjectUrlRef.current)
+      mp3ObjectUrlRef.current = null
+    }
+    mp3ItemsRef.current = []
+  }, [])
 
   useEffect(() => {
     const player = createBriefingPlayer()
@@ -172,31 +236,220 @@ export default function App() {
     })
     return () => {
       unsubscribe()
+      audioAbortRef.current?.abort()
       player.stop()
+      releaseMp3Audio()
       briefingPlayerRef.current = null
     }
-  }, [])
+  }, [releaseMp3Audio])
 
   useEffect(() => {
     briefingPlayerRef.current?.setOptions({
-      voiceURI: settings.audioVoiceURI,
+      voiceURI: isGeminiVoiceSelection(settings.audioVoiceURI)
+        ? null
+        : settings.audioVoiceURI,
       rate: settings.audioRate,
     })
+    if (mp3AudioRef.current) {
+      mp3AudioRef.current.playbackRate = clampSpeechRate(settings.audioRate)
+    }
   }, [settings.audioVoiceURI, settings.audioRate])
 
-  const handlePlayBriefing = useCallback(
-    (briefingItems: DailyBriefingItem[]) => {
-      setAudioError(null)
-      setAudioItemTotal(briefingItems.length)
-      briefingPlayerRef.current?.play(briefingItems, {
-        voiceURI: settings.audioVoiceURI,
+  const startWebSpeechSpokenFallback = useCallback(
+    (briefingItems: DailyBriefingItem[], note: string | null) => {
+      const built = buildSpokenBriefingScript(briefingItems)
+      const enriched = briefingItems.map((item, idx) => ({
+        ...item,
+        spokenText: built.segments[idx]?.text ?? `${item.title}. ${item.tldr}`,
+      }))
+      setAudioCacheStatus(null)
+      setAudioModeNote(note)
+      setActiveAudioEngine('web-speech')
+      setAudioItemTotal(enriched.length)
+      briefingPlayerRef.current?.play(enriched, {
+        voiceURI: isGeminiVoiceSelection(settings.audioVoiceURI)
+          ? null
+          : settings.audioVoiceURI,
         rate: settings.audioRate,
       })
     },
     [settings.audioVoiceURI, settings.audioRate],
   )
 
+  const handlePlayBriefing = useCallback(
+    (briefingItems: DailyBriefingItem[]) => {
+      if (briefingItems.length === 0) return
+      audioRunIdRef.current += 1
+      const runId = audioRunIdRef.current
+      audioAbortRef.current?.abort()
+      briefingPlayerRef.current?.stop()
+      releaseMp3Audio()
+      setAudioError(null)
+      setAudioCacheStatus(null)
+      setAudioModeNote(null)
+
+      const selectedVoice = settings.audioVoiceURI
+      const wantsGemini =
+        ttsStatus.available &&
+        navigator.onLine &&
+        (isGeminiVoiceSelection(selectedVoice) || selectedVoice === null)
+
+      if (!wantsGemini) {
+        const note = !ttsStatus.available
+          ? 'Gemini 3.8 Flash-Lite TTS unavailable (no server key configured) — playing spoken script via on-device Web Speech API.'
+          : !navigator.onLine
+            ? 'Offline — playing spoken script via on-device Web Speech API.'
+            : 'Playing spoken script with selected on-device Web Speech voice.'
+        startWebSpeechSpokenFallback(briefingItems, note)
+        return
+      }
+
+      const built = buildSpokenBriefingScript(briefingItems)
+      const voiceName = isGeminiVoiceSelection(selectedVoice)
+        ? selectedVoice!.replace(/^gemini:/i, '')
+        : ttsStatus.defaultVoice || 'Kore'
+      const controller = new AbortController()
+      audioAbortRef.current = controller
+      setAudioPreparing(true)
+      setAudioItemTotal(briefingItems.length)
+
+      void (async () => {
+        try {
+          const res = await fetch('/api/briefing/audio', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              items: briefingItems,
+              script: built.script,
+              voice: voiceName,
+            }),
+          })
+          if (controller.signal.aborted || runId !== audioRunIdRef.current) {
+            return
+          }
+
+          const contentType = (res.headers.get('content-type') ?? '').toLowerCase()
+          if (!res.ok || !contentType.includes('audio/')) {
+            let reason = `HTTP ${res.status}`
+            if (contentType.includes('application/json')) {
+              const payload = (await res.json().catch(() => null)) as {
+                error?: string
+              } | null
+              if (payload?.error) reason = payload.error
+            }
+            setAudioPreparing(false)
+            startWebSpeechSpokenFallback(
+              briefingItems,
+              `${reason} — playing spoken script via on-device Web Speech API.`,
+            )
+            return
+          }
+
+          const blob = await res.blob()
+          if (controller.signal.aborted || runId !== audioRunIdRef.current) {
+            return
+          }
+
+          const cacheHeader = res.headers.get('x-briefing-cache')
+          const resolvedCache =
+            cacheHeader === 'HIT' || cacheHeader === 'MISS' || cacheHeader === 'BYPASS'
+              ? cacheHeader
+              : null
+          const objectUrl = URL.createObjectURL(blob)
+          const audio = new Audio(objectUrl)
+          audio.playbackRate = clampSpeechRate(settings.audioRate)
+
+          mp3AudioRef.current = audio
+          mp3ObjectUrlRef.current = objectUrl
+          mp3ItemsRef.current = [...briefingItems]
+
+          audio.ontimeupdate = () => {
+            if (runId !== audioRunIdRef.current) return
+            const totalItems = mp3ItemsRef.current.length
+            if (!totalItems || !Number.isFinite(audio.duration) || audio.duration <= 0) {
+              return
+            }
+            const ratio = Math.min(0.999, Math.max(0, audio.currentTime / audio.duration))
+            const idx = Math.min(totalItems - 1, Math.floor(ratio * totalItems))
+            const item = mp3ItemsRef.current[idx]
+            if (item) {
+              setAudioItemIndex(idx)
+              setAudioItemId(item.id)
+              setAudioItemTitle(item.title)
+            }
+          }
+
+          audio.onended = () => {
+            if (runId !== audioRunIdRef.current) return
+            releaseMp3Audio()
+            setAudioStatus('idle')
+            setAudioItemIndex(-1)
+            setAudioItemId(null)
+            setAudioItemTotal(0)
+            setAudioItemTitle('')
+          }
+
+          audio.onerror = () => {
+            if (runId !== audioRunIdRef.current) return
+            releaseMp3Audio()
+            setAudioStatus('idle')
+            setAudioError('Browser failed to decode MP3 briefing audio.')
+          }
+
+          setAudioCacheStatus(resolvedCache)
+          setActiveAudioEngine('gemini-tts')
+          setAudioModeNote(
+            `Gemini 3.8 Flash-Lite TTS (${voiceName}) · ${
+              resolvedCache === 'HIT'
+                ? 'served from R2 cache'
+                : resolvedCache === 'MISS'
+                  ? 'encoded MP3 and cached in R2'
+                  : 'encoded MP3'
+            }.`,
+          )
+          setAudioItemIndex(0)
+          setAudioItemId(briefingItems[0]?.id ?? null)
+          setAudioItemTitle(briefingItems[0]?.title ?? '')
+          setAudioPreparing(false)
+          await audio.play()
+          if (runId === audioRunIdRef.current) {
+            setAudioStatus('speaking')
+          }
+        } catch (err) {
+          if (controller.signal.aborted || runId !== audioRunIdRef.current) return
+          setAudioPreparing(false)
+          const msg =
+            err instanceof Error ? err.message : 'Gemini TTS request failed'
+          startWebSpeechSpokenFallback(
+            briefingItems,
+            `${msg} — playing spoken script via on-device Web Speech API.`,
+          )
+        }
+      })()
+    },
+    [
+      ttsStatus.available,
+      ttsStatus.defaultVoice,
+      settings.audioVoiceURI,
+      settings.audioRate,
+      releaseMp3Audio,
+      startWebSpeechSpokenFallback,
+    ],
+  )
+
   const handleTogglePauseAudio = useCallback(() => {
+    const mp3 = mp3AudioRef.current
+    if (mp3) {
+      if (!mp3.paused) {
+        mp3.pause()
+        setAudioStatus('paused')
+      } else {
+        void mp3.play()
+        setAudioStatus('speaking')
+      }
+      return
+    }
     const player = briefingPlayerRef.current
     if (!player) return
     if (player.getStatus() === 'speaking') {
@@ -207,8 +460,19 @@ export default function App() {
   }, [])
 
   const handleStopAudio = useCallback(() => {
+    audioRunIdRef.current += 1
+    audioAbortRef.current?.abort()
+    audioAbortRef.current = null
+    setAudioPreparing(false)
+    releaseMp3Audio()
     briefingPlayerRef.current?.stop()
-  }, [])
+    setActiveAudioEngine(null)
+    setAudioStatus('idle')
+    setAudioItemIndex(-1)
+    setAudioItemId(null)
+    setAudioItemTotal(0)
+    setAudioItemTitle('')
+  }, [releaseMp3Audio])
 
   const handleAudioSettingsChange = useCallback(
     (patch: { audioVoiceURI?: string | null; audioRate?: number }) => {
@@ -263,6 +527,24 @@ export default function App() {
   const [savedIds, setSavedIds] = useState<string[]>(() =>
     loadStorage('rr.saved', []),
   )
+  const [pastReads, setPastReads] = useState<PastReadRecord[]>(() =>
+    loadPastReads(),
+  )
+  const [secondBrainVectors, setSecondBrainVectors] = useState<
+    Record<string, number[]>
+  >({})
+  const [bgeM3Vectors, setBgeM3Vectors] = useState<Record<string, number[]>>({})
+  const workersAiEmbedDisabledRef = useRef(false)
+  const [liveRelatedMatches, setLiveRelatedMatches] = useState<{
+    targetId: string
+    matches: SecondBrainMatch[]
+  } | null>(null)
+  const [liveResurfacedMatches, setLiveResurfacedMatches] = useState<
+    ResurfacedMatch[] | null
+  >(null)
+  const [secondBrainServerScores, setSecondBrainServerScores] = useState<
+    Record<string, Record<string, number>>
+  >({})
   const [summaries, setSummaries] = useState<Record<string, GeminiSummary>>(
     () => loadStorage('rr.summaries.v1', {}),
   )
@@ -589,6 +871,9 @@ export default function App() {
     saveStorage('rr.saved', savedIds)
   }, [savedIds])
   useEffect(() => {
+    savePastReads(pastReads)
+  }, [pastReads])
+  useEffect(() => {
     saveStorage('rr.notify', alertsEnabled)
   }, [alertsEnabled])
 
@@ -623,13 +908,22 @@ export default function App() {
     let active = true
     if (!navigator.onLine) return
     void fetch('/api/providers', { signal: AbortSignal.timeout(4000) })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok && isJsonResponse(res) ? res.json() : null))
       .then((data: { providers?: ProviderStatus[] } | null) => {
         if (!active || !data || !Array.isArray(data.providers)) return
         setProviders(data.providers)
       })
       .catch(() => {
         // Keep defaults quietly if providers endpoint is unreachable
+      })
+    void fetch('/api/briefing/audio/status', { signal: AbortSignal.timeout(4000) })
+      .then((res) => (res.ok && isJsonResponse(res) ? res.json() : null))
+      .then((data: BriefingTtsStatus | null) => {
+        if (!active || !data || typeof data.available !== 'boolean') return
+        setTtsStatus(data)
+      })
+      .catch(() => {
+        // Keep unavailable default cleanly
       })
     return () => {
       active = false
@@ -646,6 +940,35 @@ export default function App() {
     () => [...items, ...pulse.hn, ...pulse.github],
     [items, pulse.hn, pulse.github],
   )
+
+  const pastReadItems: FeedItem[] = useMemo(
+    () => pastReads.map(pastReadToFeedItem),
+    [pastReads],
+  )
+
+  useEffect(() => {
+    if (allKnownItems.length === 0) return
+    const readSet = new Set(readIds)
+    const savedSet = new Set(savedIds)
+    setPastReads((prev) => {
+      const existingById = new Map(prev.map((rec) => [rec.id, rec]))
+      let next = prev
+      let changed = false
+      for (const item of allKnownItems) {
+        if (item.sample) continue
+        const existing = existingById.get(item.id)
+        if (readSet.has(item.id) && !existing?.readAt) {
+          next = upsertPastRead(next, item, 'read')
+          changed = true
+        }
+        if (savedSet.has(item.id) && !existing?.savedAt) {
+          next = upsertPastRead(next, item, 'save')
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [allKnownItems, readIds, savedIds])
 
   const hasEmbeddingProvider = useMemo(
     () => providers.some((p) => p.available && p.supportsEmbeddings),
@@ -737,7 +1060,7 @@ export default function App() {
             provider: settings.aiProvider,
           }),
         })
-          .then((res) => (res.ok ? res.json() : null))
+          .then((res) => (res.ok && isJsonResponse(res) ? res.json() : null))
           .then(
             (
               data: {
@@ -793,14 +1116,56 @@ export default function App() {
     )
   }, [settings.semanticSearchEnabled, query, semanticResult])
 
-  const visibleItems = useMemo(() => {
+  const tasteVector = useMemo(() => {
+    if (!settings.personalBoostEnabled || pastReads.length === 0) return null
+    const entries = pastReads.flatMap((rec) => {
+      const vec = bgeM3Vectors[rec.id]
+      const interactedAt = rec.savedAt ?? rec.readAt
+      if (!vec || !interactedAt) return []
+      return [
+        {
+          id: rec.id,
+          vector: vec,
+          interactedAt,
+          saved: Boolean(rec.savedAt),
+        },
+      ]
+    })
+    return computeDecayWeightedTasteVector(entries)
+  }, [settings.personalBoostEnabled, pastReads, bgeM3Vectors])
+
+  const { visibleItems, exploreSlotItemId } = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (q !== '' && semanticActiveForQuery && semanticResult) {
-      return rankItemsHybrid(
-        feedAndTabItems,
-        semanticResult.scores,
-        q,
-      ).map((entry) => entry.item)
+      return {
+        visibleItems: rankItemsHybrid(
+          feedAndTabItems,
+          semanticResult.scores,
+          q,
+        ).map((entry) => entry.item),
+        exploreSlotItemId: null,
+      }
+    }
+
+    const filtered = feedAndTabItems.filter(
+      (it) =>
+        q === '' ||
+        it.title.toLowerCase().includes(q) ||
+        it.description.toLowerCase().includes(q),
+    )
+
+    if (sortBy === 'score' && settings.personalBoostEnabled && tasteVector) {
+      const ranked = rankFeedWithTasteVector(
+        filtered,
+        bgeM3Vectors,
+        tasteVector,
+        { readIds },
+      )
+      const exploreEntry = ranked.find((entry) => entry.isExploreSlot)
+      return {
+        visibleItems: ranked.map((entry) => entry.item),
+        exploreSlotItemId: exploreEntry ? exploreEntry.item.id : null,
+      }
     }
 
     const rankedScores = new Map<string, number>()
@@ -815,14 +1180,8 @@ export default function App() {
         )
       }
     }
-    return feedAndTabItems
-      .filter(
-        (it) =>
-          q === '' ||
-          it.title.toLowerCase().includes(q) ||
-          it.description.toLowerCase().includes(q),
-      )
-      .sort((a, b) => {
+    return {
+      visibleItems: filtered.sort((a, b) => {
         if (sortBy === 'date') {
           return (
             new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime() ||
@@ -833,7 +1192,9 @@ export default function App() {
           (rankedScores.get(b.id) ?? 0) - (rankedScores.get(a.id) ?? 0) ||
           new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
         )
-      })
+      }),
+      exploreSlotItemId: null,
+    }
   }, [
     feedAndTabItems,
     query,
@@ -842,6 +1203,9 @@ export default function App() {
     semanticResult,
     settings.personalBoostEnabled,
     taste,
+    tasteVector,
+    bgeM3Vectors,
+    readIds,
   ])
 
   const semanticSimilarityById = useMemo(
@@ -851,8 +1215,333 @@ export default function App() {
 
   const selectedItem =
     visibleItems.find((it) => it.id === selectedId) ??
+    allKnownItems.find((it) => it.id === selectedId) ??
+    pastReadItems.find((it) => it.id === selectedId) ??
     visibleItems[0] ??
     null
+
+  const allowSecondBrainSemantic =
+    settings.semanticSearchEnabled &&
+    (hasEmbeddingProvider || semanticProgress.modelReady)
+
+  const topStoriesForResurface = useMemo(
+    () =>
+      selectDailyBriefingItems(
+        allKnownItems.some((it) => !it.sample)
+          ? allKnownItems.filter((it) => !it.sample)
+          : allKnownItems,
+        5,
+      ),
+    [allKnownItems],
+  )
+
+  useEffect(() => {
+    if (!allowSecondBrainSemantic || pastReads.length === 0) return
+    const controller = new AbortController()
+    const targetCandidates: FeedItem[] = []
+    if (selectedItem) targetCandidates.push(selectedItem)
+    for (const story of topStoriesForResurface) {
+      if (!targetCandidates.some((c) => c.id === story.id)) {
+        targetCandidates.push(story)
+      }
+    }
+    if (targetCandidates.length === 0) return
+
+    const pastSlice = pastReads.slice(0, 40)
+    const pastDocs = pastSlice.map((r) => ({
+      id: r.id,
+      text: formatItemEmbeddingText(r),
+    }))
+
+    if (semanticProgress.modelReady && isLocalSemanticSupported()) {
+      const embedPool = [
+        ...targetCandidates,
+        ...pastSlice.map(pastReadToFeedItem),
+      ]
+      void semanticClient
+        .embedItems(embedPool, controller.signal)
+        .then((vecs) => {
+          if (controller.signal.aborted || Object.keys(vecs).length === 0) return
+          setSecondBrainVectors((prev) => ({ ...prev, ...vecs }))
+        })
+        .catch(() => {
+          // Fall back silently to server /api/embed or deterministic topic-overlap
+        })
+    } else if (hasEmbeddingProvider && navigator.onLine) {
+      const missingTargets = targetCandidates.filter(
+        (target) => !secondBrainServerScores[target.id],
+      )
+      if (missingTargets.length > 0) {
+        void runWithConcurrency(missingTargets, 2, async (target) => {
+          if (controller.signal.aborted) return
+          try {
+            const res = await fetch('/api/embed', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: controller.signal,
+              body: JSON.stringify({
+                query: formatItemEmbeddingText(target),
+                documents: pastDocs,
+                provider: settings.aiProvider,
+              }),
+            })
+            if (!res.ok || !isJsonResponse(res)) return
+            const data = (await res.json()) as {
+              available?: boolean
+              scores?: Record<string, number>
+            }
+            if (
+              !controller.signal.aborted &&
+              data.available &&
+              data.scores &&
+              Object.keys(data.scores).length > 0
+            ) {
+              setSecondBrainServerScores((prev) => ({
+                ...prev,
+                [target.id]: data.scores!,
+              }))
+            }
+          } catch {
+            // Fall back cleanly to deterministic topic-overlap
+          }
+        })
+      }
+    }
+
+    return () => controller.abort()
+  }, [
+    allowSecondBrainSemantic,
+    hasEmbeddingProvider,
+    pastReads,
+    selectedItem,
+    semanticClient,
+    semanticProgress.modelReady,
+    settings.aiProvider,
+    topStoriesForResurface,
+    secondBrainServerScores,
+  ])
+
+  useEffect(() => {
+    if (!navigator.onLine || workersAiEmbedDisabledRef.current) return
+    const candidates = [
+      ...pastReads.map((rec) => ({
+        id: rec.id,
+        feedId: rec.feedId,
+        feedTitle: rec.feedTitle,
+        title: rec.title,
+        link: rec.link,
+        description: rec.description.slice(0, 800),
+        pubDate: rec.pubDate,
+        readAt: rec.readAt,
+        savedAt: rec.savedAt,
+        score: rec.score,
+      })),
+      ...items
+        .filter((it) => !it.sample)
+        .slice(0, 24)
+        .map((it) => ({
+          id: it.id,
+          feedId: it.feedId,
+          feedTitle: it.feedTitle,
+          title: it.title,
+          link: it.link,
+          description: it.description.slice(0, 800),
+          pubDate: it.pubDate,
+          score: it.score,
+        })),
+    ].filter((entry) => !bgeM3Vectors[entry.id])
+
+    if (candidates.length === 0) return
+
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      void fetch('/api/ai/embed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          items: candidates.slice(0, 12),
+          ingest: true,
+        }),
+      })
+        .then((res) => {
+          if (!res.ok) {
+            workersAiEmbedDisabledRef.current = true
+            return null
+          }
+          return isJsonResponse(res) ? res.json() : null
+        })
+        .then(
+          (
+            data: {
+              available?: boolean
+              embeddings?: Record<string, number[]>
+            } | null,
+          ) => {
+            if (controller.signal.aborted || !data) return
+            if (!data.available) {
+              workersAiEmbedDisabledRef.current = true
+              return
+            }
+            if (data.embeddings && Object.keys(data.embeddings).length > 0) {
+              setBgeM3Vectors((prev) => ({ ...prev, ...data.embeddings }))
+            }
+          },
+        )
+        .catch(() => {
+          // Stay silent when Workers AI embed endpoint is unreachable offline
+        })
+    }, 350)
+
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [items, pastReads, bgeM3Vectors])
+
+  useEffect(() => {
+    if (!navigator.onLine || pastReads.length === 0) {
+      setLiveRelatedMatches(null)
+      setLiveResurfacedMatches(null)
+      return
+    }
+    const controller = new AbortController()
+    const compactCandidates = pastReads.slice(0, 60).map((rec) => ({
+      ...rec,
+      description: rec.description.slice(0, 600),
+    }))
+
+    if (selectedItem) {
+      void fetch('/api/ai/resurface', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          query: formatItemEmbeddingText(selectedItem),
+          topStory: {
+            id: selectedItem.id,
+            title: selectedItem.title,
+            description: selectedItem.description.slice(0, 800),
+            feedTitle: selectedItem.feedTitle,
+          },
+          candidates: compactCandidates,
+          minAgeDays: 0,
+          limit: 3,
+        }),
+      })
+        .then((res) => (res.ok && isJsonResponse(res) ? res.json() : null))
+        .then(
+          (
+            data: {
+              mode?: string
+              matches?: SecondBrainMatch[]
+            } | null,
+          ) => {
+            if (controller.signal.aborted || !data) return
+            if (
+              data.mode === 'workers-ai-vectorize' &&
+              Array.isArray(data.matches) &&
+              data.matches.length > 0
+            ) {
+              setLiveRelatedMatches({
+                targetId: selectedItem.id,
+                matches: data.matches,
+              })
+            } else {
+              setLiveRelatedMatches(null)
+            }
+          },
+        )
+        .catch(() => {
+          if (!controller.signal.aborted) setLiveRelatedMatches(null)
+        })
+    }
+
+    const topLead = topStoriesForResurface[0]
+    if (topLead) {
+      void fetch('/api/ai/resurface', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          query: formatItemEmbeddingText(topLead),
+          topStory: {
+            id: topLead.id,
+            title: topLead.title,
+            description: topLead.description.slice(0, 800),
+            feedTitle: topLead.feedTitle,
+          },
+          candidates: compactCandidates,
+          minAgeDays: 30,
+          limit: 3,
+        }),
+      })
+        .then((res) => (res.ok && isJsonResponse(res) ? res.json() : null))
+        .then(
+          (
+            data: {
+              mode?: string
+              matches?: ResurfacedMatch[]
+            } | null,
+          ) => {
+            if (controller.signal.aborted || !data) return
+            if (
+              data.mode === 'workers-ai-vectorize' &&
+              Array.isArray(data.matches) &&
+              data.matches.length > 0
+            ) {
+              setLiveResurfacedMatches(data.matches)
+            } else {
+              setLiveResurfacedMatches(null)
+            }
+          },
+        )
+        .catch(() => {
+          if (!controller.signal.aborted) setLiveResurfacedMatches(null)
+        })
+    }
+
+    return () => controller.abort()
+  }, [selectedItem, pastReads, topStoriesForResurface])
+
+  const relatedPastReads = useMemo(() => {
+    if (!selectedItem) return []
+    if (liveRelatedMatches && liveRelatedMatches.targetId === selectedItem.id) {
+      return liveRelatedMatches.matches
+    }
+    return rankRelatedPastReads(selectedItem, pastReads, {
+      limit: 3,
+      allowSemantic: allowSecondBrainSemantic,
+      vectors: secondBrainVectors,
+      semanticScores: secondBrainServerScores[selectedItem.id],
+    })
+  }, [
+    selectedItem,
+    liveRelatedMatches,
+    pastReads,
+    allowSecondBrainSemantic,
+    secondBrainVectors,
+    secondBrainServerScores,
+  ])
+
+  const resurfacedReads = useMemo(() => {
+    if (liveResurfacedMatches && liveResurfacedMatches.length > 0) {
+      return liveResurfacedMatches
+    }
+    return findResurfacedReads(pastReads, topStoriesForResurface, {
+      limit: 3,
+      allowSemantic: allowSecondBrainSemantic,
+      vectors: secondBrainVectors,
+      semanticScoresByTopStory: secondBrainServerScores,
+    })
+  }, [
+    liveResurfacedMatches,
+    pastReads,
+    topStoriesForResurface,
+    allowSecondBrainSemantic,
+    secondBrainVectors,
+    secondBrainServerScores,
+  ])
 
   useEffect(() => {
     if (
@@ -884,9 +1573,15 @@ export default function App() {
 
   const selectItem = useCallback((id: string) => {
     setSelectedId(id)
-    if (!readIds.includes(id)) learn(allKnownItems.find((item) => item.id === id), 'read')
+    const matchedItem =
+      allKnownItems.find((item) => item.id === id) ??
+      pastReadItems.find((item) => item.id === id)
+    if (!readIds.includes(id)) learn(matchedItem, 'read')
     setReadIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
-  }, [readIds, allKnownItems, learn])
+    if (matchedItem && !matchedItem.sample) {
+      setPastReads((prev) => upsertPastRead(prev, matchedItem, 'read'))
+    }
+  }, [readIds, allKnownItems, pastReadItems, learn])
 
   const openItemInReader = useCallback(
     (id: string) => {
@@ -900,12 +1595,30 @@ export default function App() {
     [selectItem, navigateTo],
   )
 
+  const openPastReadInReader = useCallback(
+    (id: string) => {
+      selectItem(id)
+      navigateTo('feed')
+      requestAnimationFrame(() => readerHeadingRef.current?.focus())
+    },
+    [selectItem, navigateTo],
+  )
+
   const toggleSave = useCallback((id: string) => {
-    if (!savedIds.includes(id)) learn(allKnownItems.find((item) => item.id === id), 'star')
+    const matchedItem =
+      allKnownItems.find((item) => item.id === id) ??
+      pastReadItems.find((item) => item.id === id)
+    const currentlySaved = savedIds.includes(id)
+    if (!currentlySaved) learn(matchedItem, 'star')
     setSavedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     )
-  }, [savedIds, allKnownItems, learn])
+    if (currentlySaved) {
+      setPastReads((prev) => unmarkSavedPastRead(prev, id))
+    } else if (matchedItem && !matchedItem.sample) {
+      setPastReads((prev) => upsertPastRead(prev, matchedItem, 'save'))
+    }
+  }, [savedIds, allKnownItems, pastReadItems, learn])
 
   const handleSummarize = useCallback(
     async (item: FeedItem) => {
@@ -921,30 +1634,25 @@ export default function App() {
         return next
       })
       try {
-        const article = articles[item.id] ?? await extract(item.link)
-        const res = await fetch('/api/summarize', {
+        const shouldSkipExtract =
+          Boolean(item.sample) ||
+          !item.link ||
+          item.link.includes('/rss/') ||
+          newsletterFeedsRef.current.some((nf) => nf.id === item.feedId)
+        const article =
+          articles[item.id] ?? (shouldSkipExtract ? null : await extract(item.link))
+        const res = await fetch('/api/ai/summarize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title: item.title,
             feedTitle: item.feedTitle,
             link: item.link,
-            content: article?.markdown ?? item.description,
+            content: (article?.markdown ?? item.description).slice(0, 12_000),
             provider: settings.aiProvider,
           }),
         })
-        const data = (await res.json()) as Partial<GeminiSummary> & {
-          error?: string
-        }
-        if (!res.ok || !data.tldr) {
-          throw new Error(data.error || `HTTP ${res.status} summarizing item`)
-        }
-        const summaryObj: GeminiSummary = {
-          tldr: data.tldr,
-          takeaways: Array.isArray(data.takeaways) ? data.takeaways : [],
-          whyMatters: data.whyMatters ?? '',
-          provider: data.provider ? sanitizeProviderId(data.provider) : undefined,
-        }
+        const summaryObj = await parseSummarizeResponse(res)
         setSummaries((prev) => {
           const entries = Object.entries({ ...prev, [item.id]: summaryObj })
           const trimmed = Object.fromEntries(entries.slice(-30))
@@ -1423,6 +2131,7 @@ export default function App() {
       newsletters: newsletterFeeds,
       readIds,
       savedIds,
+      pastReads,
       summaries,
       settings,
       lastVisitIso,
@@ -1454,6 +2163,12 @@ export default function App() {
     }
     setReadIds([])
     setSavedIds([])
+    setPastReads([])
+    setBgeM3Vectors({})
+    setLiveRelatedMatches(null)
+    setLiveResurfacedMatches(null)
+    setSecondBrainVectors({})
+    setSecondBrainServerScores({})
     setSummaries({})
     setSummaryErrors({})
     setAlertsEnabled(false)
@@ -1565,6 +2280,9 @@ export default function App() {
                   onNavigate={navigateTo}
                   onOpenShortcutsModal={() => setShortcutsOpen(true)}
                   errors={feedErrors}
+                  resurfacedReads={resurfacedReads}
+                  selectedItemId={selectedItem?.id ?? null}
+                  onOpenResurfaced={openPastReadInReader}
                 />
                 <ItemList
                   items={visibleItems}
@@ -1607,6 +2325,7 @@ export default function App() {
                   onOpenRadar={() => navigateTo('radar')}
                   onRefresh={() => void refresh(feeds, true)}
                   pulseError={activePulseError}
+                  exploreSlotItemId={exploreSlotItemId}
                 />
                 <ReaderPane
                   item={selectedItem}
@@ -1637,6 +2356,9 @@ export default function App() {
                     setReadIds((prev) => prev.filter((x) => x !== id))
                   }
                   onOpenRadar={() => navigateTo('radar')}
+                  relatedPastReads={relatedPastReads}
+                  pastReadsCount={pastReads.length}
+                  onOpenPastRead={openPastReadInReader}
                 />
               </motion.div>
             ) : activeView === 'briefing' ? (
@@ -1651,6 +2373,7 @@ export default function App() {
                 <DailyBriefingView
                   items={allKnownItems}
                   summaries={summaries}
+                  extractedArticles={articles}
                   summaryLoadingIds={summaryLoadingIds}
                   summaryErrors={summaryErrors}
                   lastVisitIso={lastVisitIso}
@@ -1662,6 +2385,18 @@ export default function App() {
                   audioRate={settings.audioRate}
                   onAudioSettingsChange={handleAudioSettingsChange}
                   audioStatus={audioStatus}
+                  audioPreparing={audioPreparing}
+                  audioEngineMode={
+                    activeAudioEngine ??
+                    (ttsStatus.available &&
+                    (isGeminiVoiceSelection(settings.audioVoiceURI) ||
+                      settings.audioVoiceURI === null)
+                      ? 'gemini-tts'
+                      : 'web-speech')
+                  }
+                  audioCacheStatus={audioCacheStatus}
+                  audioModeNote={audioModeNote}
+                  ttsStatus={ttsStatus}
                   audioItemId={audioItemId}
                   audioItemIndex={audioItemIndex}
                   audioItemTotal={audioItemTotal}
@@ -1695,6 +2430,21 @@ export default function App() {
                   }}
                   onSelectAndOpen={openItemInReader}
                   onNavigate={navigateTo}
+                />
+              </motion.div>
+            ) : activeView === 'guide' ? (
+              <motion.div
+                key="view-guide"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.14, ease: 'easeOut' }}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <UserGuidePage
+                  onNavigate={navigateTo}
+                  onOpenShortcutsModal={() => setShortcutsOpen(true)}
+                  onOpenNewsletterModal={() => setNewsletterModalOpen(true)}
                 />
               </motion.div>
             ) : activeView === 'docs' ? (
@@ -1747,6 +2497,17 @@ export default function App() {
               >
                 <ChangelogPage onNavigate={navigateTo} />
               </motion.div>
+            ) : activeView === 'faq' ? (
+              <motion.div
+                key="view-faq"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.14, ease: 'easeOut' }}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <FaqPage onNavigate={navigateTo} />
+              </motion.div>
             ) : activeView === 'privacy' ? (
               <motion.div
                 key="view-privacy"
@@ -1761,6 +2522,28 @@ export default function App() {
                   onExportJson={() => void handleExportJson()}
                   onClearAllData={handleClearAllData}
                 />
+              </motion.div>
+            ) : activeView === 'terms' ? (
+              <motion.div
+                key="view-terms"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.14, ease: 'easeOut' }}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <TermsPage onNavigate={navigateTo} />
+              </motion.div>
+            ) : activeView === 'contact' ? (
+              <motion.div
+                key="view-contact"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.14, ease: 'easeOut' }}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <ContactPage onNavigate={navigateTo} />
               </motion.div>
             ) : activeView === 'settings' ? (
               <motion.div

@@ -68,7 +68,17 @@ export default function PrivacyPolicyPage({
               <code className="font-mono text-zinc-900">rr.notify</code> &amp;{' '}
               <code className="font-mono text-zinc-900">rr.notified</code> — Notification opt-in and already-alerted item IDs.
             </li>
+            <li>
+              <code className="font-mono text-zinc-900">rr.newsletter.v1</code> &amp;{' '}
+              <code className="font-mono text-zinc-900">rr.pastReads.v1</code> — Local newsletter bridge definitions/entries and up to 300 Second Brain read/saved records.
+            </li>
           </ul>
+          <p className="text-[13px] text-zinc-600">
+            Local embeddings and personal taste weights remain on-device inside IndexedDB (<code className="font-mono text-zinc-900">rr-personalization</code> and{' '}
+            <code className="font-mono text-zinc-900">rr-semantic</code>) and browser Cache Storage (<code className="font-mono text-zinc-900">rr-reader-v1</code>,{' '}
+            <code className="font-mono text-zinc-900">rr-covers-v1</code>,{' '}
+            <code className="font-mono text-zinc-900">transformers-cache</code>).
+          </p>
         </section>
 
         <Separator />
@@ -106,11 +116,12 @@ export default function PrivacyPolicyPage({
 
         <Separator />
 
-        <section aria-label="Server-side AI summarization and search" className="space-y-2.5">
+        <section aria-label="Server-side AI routing and read-only MCP" className="space-y-2.5">
           <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-            3. Server-side AI routing (<code className="font-mono">GET /api/providers</code>,{' '}
-            <code className="font-mono">POST /api/summarize</code>,{' '}
-            <code className="font-mono">POST /api/embed</code>)
+            3. Server-side AI &amp; TTS routing (<code className="font-mono">GET /api/providers</code>,{' '}
+            <code className="font-mono">POST /api/ai/summarize</code>,{' '}
+            <code className="font-mono">POST /api/ask</code>,{' '}
+            <code className="font-mono">POST /api/briefing/audio</code>)
           </h2>
           <p>
             Provider credentials (<code className="font-mono">GEMINI_API_KEY</code> and
@@ -124,21 +135,23 @@ export default function PrivacyPolicyPage({
           </p>
           <p>
             When you summarize an article (<kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[11px]">s</kbd>),
-            only the article’s title, feed name, canonical URL, and excerpt (up
-            to 5,000 characters) are routed through Vercel AI SDK v7. When
+            ask a question, or request Daily Briefing MP3 synthesis (<code className="font-mono">gemini-3.8-flash-lite-tts</code>, optionally cached in R2),
+            only the relevant article text or spoken script is sent to the server route. When
             searching (<kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[11px]">/</kbd> or{' '}
             <kbd className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[11px]">⌘K</kbd>),
             in-browser semantic search runs locally via a Web Worker (caching model
             weights in <code className="font-mono">transformers-cache</code> and
-            384-dim vectors in IndexedDB <code className="font-mono">rr-semantic</code>);
-            <code className="font-mono">POST /api/embed</code> is used only as a
-            fallback when local WASM is unavailable or still downloading.
+            384-dim vectors in IndexedDB <code className="font-mono">rr-semantic</code>);{' '}
+            <code className="font-mono">POST /api/embed</code> or{' '}
+            <code className="font-mono">POST /api/ai/embed</code> is used only when
+            server embeddings are configured and local WASM is unavailable.
           </p>
           <p>
-            The stateless <code className="font-mono">/mcp</code> endpoint serves
-            the default public feed catalog, not your browser-local reading
-            state. Its AI tools send article content or search inputs to
-            configured providers and may incur charges. Hosting, proxy, and AI
+            The stateless <code className="font-mono">/mcp</code> endpoint operates
+            strictly in an <strong>authless read-only demo scope</strong> over
+            public default feeds and shared Worker catalog state—it exposes zero
+            write tools, zero paid AI generation tools, and never reads your
+            browser-local reading state. Hosting, proxy, and configured AI
             services may retain request logs under their own policies; clearing
             browser storage does not erase those external logs.
           </p>

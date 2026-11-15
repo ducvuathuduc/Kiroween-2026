@@ -136,5 +136,8 @@ test('Hono preserves the existing API contracts', async (t) => {
     const empty = await request('/api/embed', { method: 'POST', headers: { 'content-type': 'application/json' } })
     assert.equal(empty.status, 200)
     assert.deepEqual(await empty.json(), { available: false, provider: null, scores: {} })
+    const missingApi = await request('/api/nonexistent')
+    assert.equal(missingApi.status, 404)
+    assert.deepEqual(await missingApi.json(), { error: 'API endpoint not found.' })
   })
 })

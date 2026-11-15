@@ -4,10 +4,13 @@ import type { NewsletterFeedRecord } from './newsletter'
 import { selectDailyBriefingItems, type FeedHealth } from './briefing'
 import type { PulseSnapshot } from './pulse'
 import { emptyProfile, type TasteProfile } from './personalize'
+import type { PastReadRecord } from './secondBrain'
 
 export const LAST_VISIT_STORAGE_KEY = 'rr.lastVisit.v1'
 export const SETTINGS_STORAGE_KEY = 'rr.settings.v1'
 export const NEWSLETTER_STORAGE_KEY = 'rr.newsletter.v1'
+export const PAST_READS_STORAGE_KEY = 'rr.pastReads.v1'
+const MAX_PAST_READS = 300
 
 export type ReaderDensity = 'comfortable' | 'compact'
 export type DefaultFilter = 'all' | 'high' | 'unread' | 'saved'
@@ -113,6 +116,126 @@ export function loadNewsletterFeeds(): NewsletterFeedRecord[] {
 
 export function saveNewsletterFeeds(feeds: readonly NewsletterFeedRecord[]): void {
   saveStorage(NEWSLETTER_STORAGE_KEY, feeds)
+}
+
+function isValidIso(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value))
+}
+
+function interactionSortMs(record: PastReadRecord): number {
+  const r = record.readAt ? Date.parse(record.readAt) : Number.NaN
+  const s = record.savedAt ? Date.parse(record.savedAt) : Number.NaN
+  return Math.max(Number.isFinite(r) ? r : 0, Number.isFinite(s) ? s : 0)
+}
+
+function boundPastReads(records: readonly PastReadRecord[]): PastReadRecord[] {
+  const deduped = new Map<string, PastReadRecord>()
+  for (const rec of records) {
+    deduped.set(rec.id, rec)
+  }
+  const list = [...deduped.values()]
+  if (list.length <= MAX_PAST_READS) return list
+  // Prioritize saved items first, then most recently interacted items
+  return list
+    .sort((a, b) => {
+      const aSaved = a.savedAt ? 1 : 0
+      const bSaved = b.savedAt ? 1 : 0
+      if (aSaved !== bSaved) return bSaved - aSaved
+      return interactionSortMs(b) - interactionSortMs(a)
+    })
+    .slice(0, MAX_PAST_READS)
+}
+
+export function sanitizePastReads(raw: unknown): PastReadRecord[] {
+  if (!Array.isArray(raw)) return []
+  const cleaned: PastReadRecord[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const rec = entry as Partial<PastReadRecord> & { sample?: unknown }
+    if (rec.sample === true) continue
+    if (
+      typeof rec.id !== 'string' ||
+      !rec.id ||
+      typeof rec.title !== 'string' ||
+      !rec.title ||
+      typeof rec.feedId !== 'string' ||
+      typeof rec.feedTitle !== 'string' ||
+      typeof rec.link !== 'string' ||
+      typeof rec.description !== 'string' ||
+      typeof rec.pubDate !== 'string'
+    ) {
+      continue
+    }
+    const readAt = isValidIso(rec.readAt) ? rec.readAt : undefined
+    const savedAt = isValidIso(rec.savedAt) ? rec.savedAt : undefined
+    if (!readAt && !savedAt) continue
+    cleaned.push({
+      id: rec.id,
+      feedId: rec.feedId,
+      feedTitle: rec.feedTitle,
+      title: rec.title,
+      link: rec.link,
+      description: rec.description.slice(0, 1200),
+      pubDate: rec.pubDate,
+      ...(typeof rec.score === 'number' && Number.isFinite(rec.score)
+        ? { score: rec.score }
+        : {}),
+      ...(rec.scoreDimensions ? { scoreDimensions: rec.scoreDimensions } : {}),
+      ...(readAt ? { readAt } : {}),
+      ...(savedAt ? { savedAt } : {}),
+    })
+  }
+  return boundPastReads(cleaned)
+}
+
+export function loadPastReads(): PastReadRecord[] {
+  return sanitizePastReads(loadStorage<unknown>(PAST_READS_STORAGE_KEY, []))
+}
+
+export function savePastReads(records: readonly PastReadRecord[]): void {
+  saveStorage(PAST_READS_STORAGE_KEY, boundPastReads(records))
+}
+
+export function upsertPastRead(
+  records: readonly PastReadRecord[],
+  item: FeedItem,
+  action: 'read' | 'save',
+  nowIso = new Date().toISOString(),
+): PastReadRecord[] {
+  if (item.sample) return [...records]
+  const existing = records.find((rec) => rec.id === item.id)
+  const nextRecord: PastReadRecord = {
+    id: item.id,
+    feedId: item.feedId,
+    feedTitle: item.feedTitle,
+    title: item.title,
+    link: item.link,
+    description: (item.scoreText ?? item.description).slice(0, 1200),
+    pubDate: item.pubDate,
+    ...(typeof item.score === 'number' ? { score: item.score } : {}),
+    ...(item.scoreDimensions ? { scoreDimensions: item.scoreDimensions } : {}),
+    readAt: existing?.readAt ?? (action === 'read' ? nowIso : undefined),
+    savedAt: existing?.savedAt ?? (action === 'save' ? nowIso : undefined),
+  }
+  if (!nextRecord.readAt && !nextRecord.savedAt) {
+    return [...records]
+  }
+  return boundPastReads([
+    nextRecord,
+    ...records.filter((rec) => rec.id !== item.id),
+  ])
+}
+
+export function unmarkSavedPastRead(
+  records: readonly PastReadRecord[],
+  itemId: string,
+): PastReadRecord[] {
+  return records.flatMap((rec) => {
+    if (rec.id !== itemId) return [rec]
+    if (!rec.readAt) return []
+    const { savedAt: _removed, ...rest } = rec
+    return [rest]
+  })
 }
 
 function openTasteDatabase(): Promise<IDBDatabase> {
@@ -334,6 +457,7 @@ export function clearReaderStorage(): void {
     LAST_VISIT_STORAGE_KEY,
     SETTINGS_STORAGE_KEY,
     NEWSLETTER_STORAGE_KEY,
+    PAST_READS_STORAGE_KEY,
   ]
   try {
     for (const k of keys) localStorage.removeItem(k)

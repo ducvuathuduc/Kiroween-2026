@@ -49,9 +49,9 @@ export function agentCard(origin: string) {
     defaultInputModes: ['application/json'],
     defaultOutputModes: ['application/json'],
     skills: [
-      { id: 'get_top_items', name: 'Top items', description: 'Same live-data function as MCP search_items, with no query. DataPart: {skill:"get_top_items",limit?:1..50,minScore?:0..100}.', tags: ['rss', 'deterministic-scoring'] },
-      { id: 'get_briefing', name: 'Daily briefing', description: 'Same top-five selector as the UI and MCP daily_briefing. DataPart: {skill:"get_briefing"}. Does not generate paid AI summaries.', tags: ['rss', 'briefing'] },
-      { id: 'export_kiro_task', name: 'Kiro task export', description: 'Same Markdown spec builder as MCP export_kiro_task. DataPart: {skill:"export_kiro_task",id:"<current live item ID>"}.', tags: ['kiro', 'markdown'] },
+      { id: 'get_top_items', name: 'Top items', description: 'Same live-data function as MCP get_feed_items, with no query. DataPart: {skill:"get_top_items",limit?:1..50,minScore?:0..100}.', tags: ['rss', 'deterministic-scoring'] },
+      { id: 'get_briefing', name: 'Daily briefing', description: 'Same top-five selector as the UI and MCP get_daily_briefing. DataPart: {skill:"get_briefing"}. Does not generate paid AI summaries.', tags: ['rss', 'briefing'] },
+      { id: 'export_kiro_task', name: 'Kiro task export', description: 'Same Markdown spec builder as the UI Kiro task modal. DataPart: {skill:"export_kiro_task",id:"<current live item ID>"}.', tags: ['kiro', 'markdown'] },
     ],
   }
 }

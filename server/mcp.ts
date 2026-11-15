@@ -1,91 +1,189 @@
-import { McpServer, type CallToolResult } from '@modelcontextprotocol/server'
-import { createMcpHandler } from 'agents/mcp/server'
+import {
+  McpServer,
+  createMcpHandler,
+  type CallToolResult,
+} from '@modelcontextprotocol/server'
 import { z } from 'zod'
-import { DEFAULT_FEEDS } from '../src/lib/feeds.ts'
-import { rankItemsByCosine } from '../src/lib/providers.ts'
-import { getProvidersStatus, semanticScoreWithFallback, summarizeWithFallback } from './ai.ts'
-import { getItem, loadItems } from './items.ts'
-import { dailyBriefing, exportKiroTask, searchItems } from './readTools.ts'
+import {
+  createMemoryNewsletterStore,
+  type NewsletterStore,
+} from '../src/lib/newsletter.ts'
+import type { LiveAiEnv } from './liveAi.ts'
+import {
+  dailyBriefing,
+  getSignalScores,
+  listNewsletters,
+  resurfacePastRead,
+  searchItems,
+} from './readTools.ts'
 
-const itemId = z.string().trim().min(1).max(4096)
-const provider = z.enum(['gemini', 'openai', 'anthropic', 'bedrock']).default('gemini')
-const query = z.string().trim().min(1).max(500)
-const limit = z.number().int().min(1).max(50).default(20)
+const AUTHLESS_DEMO_SCOPE =
+  'Authless read-only demo scope (no OAuth 2.1; reads public default feeds and Worker read-only state without mutations).'
 
-async function result(run: () => unknown | Promise<unknown>): Promise<CallToolResult> {
+const READ_ONLY_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const
+
+const FEED_ID_SCHEMA = z.enum(['aws-news', 'aws-ml', 'hn'])
+const ITEM_ID_SCHEMA = z.string().trim().min(1).max(4096)
+const QUERY_SCHEMA = z.string().trim().min(1).max(500)
+const PAST_READ_SCHEMA = z
+  .object({
+    id: ITEM_ID_SCHEMA,
+    feedId: z.string().trim().min(1).max(128).optional(),
+    feedTitle: z.string().trim().min(1).max(200),
+    title: z.string().trim().min(1).max(500),
+    link: z.string().trim().max(2048).optional(),
+    description: z.string().max(5000).default(''),
+    pubDate: z.string().trim().max(64).optional(),
+    score: z.number().min(0).max(100).optional(),
+    readAt: z.string().trim().max(64).optional(),
+    savedAt: z.string().trim().max(64).optional(),
+  })
+  .strict()
+
+async function toolResult(
+  run: () => unknown | Promise<unknown>,
+): Promise<CallToolResult> {
   try {
-    return { content: [{ type: 'text', text: JSON.stringify(await run()) }] }
+    return {
+      content: [{ type: 'text', text: JSON.stringify(await run()) }],
+    }
   } catch (error) {
     return {
       isError: true,
-      content: [{ type: 'text', text: error instanceof Error ? error.message : 'Tool failed.' }],
+      content: [
+        {
+          type: 'text',
+          text: error instanceof Error ? error.message : 'Tool failed.',
+        },
+      ],
     }
   }
 }
 
-export function createReaderMcpServer(): McpServer {
-  const server = new McpServer({ name: 'resurrected-reader', version: '0.1.0' })
+export interface CreateReaderMcpOptions {
+  newsletterStore?: NewsletterStore
+  getEnv?: (request?: Request) => LiveAiEnv | undefined
+}
 
-  server.registerTool('list_feeds', {
-    description: 'List the public default feed catalog. Browser-local subscriptions are not shared with MCP.',
-    inputSchema: z.object({}),
-  }, () => result(() => ({ feeds: DEFAULT_FEEDS })))
+export function createReaderMcpServer(
+  options: CreateReaderMcpOptions = {},
+  request?: Request,
+): McpServer {
+  const store = options.newsletterStore ?? createMemoryNewsletterStore()
+  const server = new McpServer({
+    name: 'resurrected-reader',
+    version: '0.1.0',
+  })
 
-  server.registerTool('search_items', {
-    description: 'Search current live feed titles and descriptions, sorted by deterministic signal score. Returns item IDs for the item tools and any feed errors.',
-    inputSchema: z.object({ query: query.optional(), limit, minScore: z.number().min(0).max(100).default(0) }),
-  }, (args) => result(() => searchItems(args)))
+  server.registerTool(
+    'get_daily_briefing',
+    {
+      title: 'Get Daily Briefing',
+      description: `${AUTHLESS_DEMO_SCOPE} Return the top deduplicated live public-feed items (default 5) ranked by deterministic 4D signal score without calling paid AI.`,
+      inputSchema: z
+        .object({
+          limit: z.number().int().min(1).max(5).default(5),
+        })
+        .strict(),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    ({ limit }) => toolResult(() => dailyBriefing(limit)),
+  )
 
-  server.registerTool('get_item', {
-    description: 'Get a current live item by an ID returned by search_items, semantic_search, or daily_briefing.',
-    inputSchema: z.object({ id: itemId }),
-  }, ({ id }) => result(() => getItem(id)))
+  server.registerTool(
+    'get_feed_items',
+    {
+      title: 'Get Feed Items',
+      description: `${AUTHLESS_DEMO_SCOPE} List and filter live items from the three public default feeds (aws-news, aws-ml, hn) sorted by deterministic signal score.`,
+      inputSchema: z
+        .object({
+          query: QUERY_SCHEMA.optional(),
+          feedId: FEED_ID_SCHEMA.optional(),
+          minScore: z.number().min(0).max(100).default(0),
+          limit: z.number().int().min(1).max(50).default(20),
+        })
+        .strict(),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    (args) => toolResult(() => searchItems(args)),
+  )
 
-  server.registerTool('summarize_item', {
-    description: 'Generate a summary of a live item through configured AI providers. May incur provider charges; returns an error when no provider is configured.',
-    inputSchema: z.object({ id: itemId, provider }),
-  }, ({ id, provider: preferredProvider }) => result(async () => {
-    const item = await getItem(id)
-    return summarizeWithFallback({ ...item, content: item.description.slice(0, 5000), preferredProvider })
-  }))
+  server.registerTool(
+    'get_signal_scores',
+    {
+      title: 'Get Signal Scores',
+      description: `${AUTHLESS_DEMO_SCOPE} Inspect deterministic 4D signal scores (Relevance 42%, Recency 24%, Authority 18%, Novelty 16%), score histogram, feed activity, or per-item scoring cues. Never uses AI.`,
+      inputSchema: z
+        .object({
+          itemId: ITEM_ID_SCHEMA.optional(),
+          feedId: FEED_ID_SCHEMA.optional(),
+          limit: z.number().int().min(1).max(50).default(10),
+        })
+        .strict(),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    (args) => toolResult(() => getSignalScores(args)),
+  )
 
-  server.registerTool('semantic_search', {
-    description: 'Search up to 60 live items using configured embeddings (may incur provider charges). Reports whether embeddings were available; otherwise returns keyword matches.',
-    inputSchema: z.object({ query, limit, provider }),
-  }, ({ query: text, limit: count, provider: preferredProvider }) => result(async () => {
-    const { items, errors } = await loadItems()
-    const candidates = items.slice(0, 60)
-    const semantic = await semanticScoreWithFallback({
-      query: text,
-      documents: candidates.map((item) => ({ id: item.id, text: `${item.title} ${item.description}` })),
-      preferredProvider,
-    })
-    const matches = (item: (typeof items)[number]) => `${item.title} ${item.description}`.toLowerCase().includes(text.toLowerCase())
-    const ranked = semantic.available ? rankItemsByCosine(candidates, semantic.scores, matches) : candidates.filter(matches)
-    return { ...semantic, items: ranked.slice(0, count), errors }
-  }))
+  server.registerTool(
+    'resurface_past_read',
+    {
+      title: 'Resurface Past Read',
+      description: `${AUTHLESS_DEMO_SCOPE} Match caller-supplied read/saved history (and Vectorize when bound) against a query or live feed story, with honest workers-ai-vectorize vs topic-overlap labeling and explicit why reasons.`,
+      inputSchema: z
+        .object({
+          query: QUERY_SCHEMA.optional(),
+          itemId: ITEM_ID_SCHEMA.optional(),
+          pastReads: z.array(PAST_READ_SCHEMA).max(100).optional(),
+          minAgeDays: z.number().int().min(0).max(3650).default(0),
+          limit: z.number().int().min(1).max(10).default(5),
+        })
+        .strict(),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    (args) =>
+      toolResult(() =>
+        resurfacePastRead({
+          ...args,
+          env: options.getEnv?.(request),
+        }),
+      ),
+  )
 
-  server.registerTool('get_providers', {
-    description: 'Report configured AI provider availability and model names without exposing credentials.',
-    inputSchema: z.object({}),
-  }, () => result(() => ({ defaultProvider: 'gemini', providers: getProvidersStatus() })))
-
-  server.registerTool('daily_briefing', {
-    description: 'Return the top five deduplicated live items by deterministic signal score. Does not generate AI summaries; use summarize_item for those.',
-    inputSchema: z.object({}),
-  }, () => result(dailyBriefing))
-
-  server.registerTool('export_kiro_task', {
-    description: 'Generate requirements.md, design.md, and tasks.md from a live item using the same Kiro spec builder as the reader. Returns Markdown without writing files.',
-    inputSchema: z.object({ id: itemId }),
-  }, ({ id }) => result(() => exportKiroTask(id)))
+  server.registerTool(
+    'list_newsletters',
+    {
+      title: 'List Newsletters',
+      description: `${AUTHLESS_DEMO_SCOPE} List newsletter bridge feeds registered on this Worker instance and optionally preview recent entries without mutating state.`,
+      inputSchema: z
+        .object({
+          feedId: z.string().trim().min(1).max(64).optional(),
+          includeEntries: z.boolean().default(false),
+          entryLimit: z.number().int().min(1).max(20).default(5),
+        })
+        .strict(),
+      annotations: READ_ONLY_ANNOTATIONS,
+    },
+    (args) => toolResult(() => listNewsletters(store, args)),
+  )
 
   return server
 }
 
-export const mcpHandler = createMcpHandler(createReaderMcpServer, { route: '/mcp', responseMode: 'json' })
+export function createReaderMcpHandler(options: CreateReaderMcpOptions = {}) {
+  return createMcpHandler((ctx) =>
+    createReaderMcpServer(options, ctx.requestInfo),
+  )
+}
 
-// A Worker object export, not a function/WorkerEntrypoint or a stdio transport.
+export const mcpHandler = createReaderMcpHandler()
+
+// Stateless Worker fetch export using SDK v2 createMcpHandler (MCP 2026-07-28 + 2025 stateless compat).
 export default {
   fetch(request: Request): Promise<Response> {
     return mcpHandler.fetch(request)

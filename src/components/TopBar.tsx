@@ -6,19 +6,23 @@ import {
   BellOff,
   BookOpen,
   Command,
+  Compass,
   Download,
   FileJson,
   GitBranch,
+  HelpCircle,
   History,
   Info,
   Keyboard,
   Layers,
+  Mail,
   MoreHorizontal,
   Newspaper,
   Pause,
   Play,
   RefreshCw,
   RotateCcw,
+  Scale,
   Search,
   Settings,
   Shield,
@@ -505,13 +509,21 @@ export default function TopBar({
             <DropdownMenuLabel className="text-[11px] text-zinc-400">
               Pages
             </DropdownMenuLabel>
-            <DropdownMenuItem onSelect={() => onViewChange('about')}>
-              <Info className="size-3.5" />
-              About
+            <DropdownMenuItem onSelect={() => onViewChange('guide')}>
+              <Compass className="size-3.5" />
+              User Guide
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onViewChange('docs')}>
               <BookOpen className="size-3.5" />
               Documentation
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onViewChange('faq')}>
+              <HelpCircle className="size-3.5" />
+              FAQ
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onViewChange('about')}>
+              <Info className="size-3.5" />
+              About
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onViewChange('changelog')}>
               <History className="size-3.5" />
@@ -519,7 +531,15 @@ export default function TopBar({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onViewChange('privacy')}>
               <Shield className="size-3.5" />
-              Privacy
+              Privacy Policy
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onViewChange('terms')}>
+              <Scale className="size-3.5" />
+              Terms of Service
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onViewChange('contact')}>
+              <Mail className="size-3.5" />
+              Contact &amp; Support
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onViewChange('settings')}>
               <Settings className="size-3.5" />

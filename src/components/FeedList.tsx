@@ -19,6 +19,7 @@ import {
   timeAgo,
 } from '../lib/format'
 import { routeToPath, type NavigableRoute } from '../lib/routes'
+import type { ResurfacedMatch } from '../lib/secondBrain'
 import { Avatar, AvatarFallback } from './ui/avatar'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
@@ -51,6 +52,9 @@ interface FeedListProps {
   onNavigate: (route: NavigableRoute) => void
   onOpenShortcutsModal: () => void
   errors: Record<string, string>
+  resurfacedReads?: ResurfacedMatch[]
+  selectedItemId?: string | null
+  onOpenResurfaced?: (id: string) => void
 }
 
 export default function FeedList({
@@ -70,6 +74,9 @@ export default function FeedList({
   onNavigate,
   onOpenShortcutsModal,
   errors,
+  resurfacedReads = [],
+  selectedItemId,
+  onOpenResurfaced,
 }: FeedListProps) {
   const [url, setUrl] = useState('')
   const [addError, setAddError] = useState('')
@@ -430,6 +437,72 @@ export default function FeedList({
             })}
           </ul>
         )}
+
+        <Separator className="my-2.5" />
+
+        <section
+          aria-labelledby="resurfaced-today-heading"
+          className="px-1 pb-2"
+        >
+          <div className="flex items-center justify-between px-1.5 pb-1.5">
+            <h2
+              id="resurfaced-today-heading"
+              className="text-[11px] font-medium tracking-wider text-zinc-500 uppercase"
+            >
+              Resurfaced today
+            </h2>
+            {resurfacedReads.length > 0 && (
+              <span className="font-mono text-[10px] tabular-nums text-zinc-600">
+                {resurfacedReads.length}
+              </span>
+            )}
+          </div>
+
+          {resurfacedReads.length === 0 ? (
+            <p className="px-1.5 text-[11px] leading-relaxed text-zinc-500">
+              No items read or saved &gt;30 days ago match today&apos;s top
+              stories yet.
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {resurfacedReads.map((match) => {
+                const isActive = selectedItemId === match.item.id
+                return (
+                  <li key={match.item.id}>
+                    <button
+                      type="button"
+                      onClick={() => onOpenResurfaced?.(match.item.id)}
+                      aria-current={isActive ? 'true' : undefined}
+                      className={`w-full rounded-md border p-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 ${
+                        isActive
+                          ? 'border-zinc-950 bg-zinc-100'
+                          : 'border-zinc-200 bg-white hover:bg-zinc-50'
+                      }`}
+                    >
+                      <span className="line-clamp-2 block text-xs leading-snug font-medium text-zinc-950">
+                        {match.item.title}
+                      </span>
+                      <span className="mt-1 flex flex-wrap items-center justify-between gap-1 font-mono text-[10px] tabular-nums text-zinc-500">
+                        <span>{match.daysAgo}d ago</span>
+                        <span className="rounded border border-zinc-200 bg-zinc-50 px-1 py-0.5 text-zinc-700">
+                          {match.matchKind} {match.score.toFixed(2)}
+                        </span>
+                      </span>
+                      {match.sharedTopics.length > 0 && (
+                        <span className="mt-1 block truncate text-[10px] text-zinc-600">
+                          {match.sharedTopics.join(' · ')}
+                        </span>
+                      )}
+                      <span className="mt-0.5 block truncate text-[10px] text-zinc-400">
+                        {match.why ?? `Relates to: ${match.matchedTopStory.title}`}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
       </ScrollArea>
 
       <Separator />
@@ -479,11 +552,15 @@ export default function FeedList({
         >
           {(
             [
+              ['guide', 'Guide'],
               ['docs', 'Docs'],
+              ['faq', 'FAQ'],
               ['settings', 'Settings'],
               ['about', 'About'],
               ['changelog', 'Changelog'],
               ['privacy', 'Privacy'],
+              ['terms', 'Terms'],
+              ['contact', 'Contact'],
             ] as const
           ).map(([route, label]) => (
             <a

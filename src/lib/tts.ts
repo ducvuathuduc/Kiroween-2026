@@ -1,3 +1,5 @@
+import type { SignalDimensions } from './scoring'
+
 export interface DailyBriefingItem {
   id: string
   title: string
@@ -5,6 +7,33 @@ export interface DailyBriefingItem {
   score: number
   source: string
   tldr: string
+  pubDate?: string
+  takeaways?: readonly string[]
+  whyMatters?: string
+  description?: string
+  extractedText?: string
+  scoreDimensions?: SignalDimensions
+  spokenText?: string
+}
+
+export interface BriefingTtsVoiceOption {
+  id: string
+  voiceName: string
+  label: string
+}
+
+export interface BriefingTtsStatus {
+  available: boolean
+  model: string
+  r2Bound: boolean
+  defaultVoice: string
+  voices: BriefingTtsVoiceOption[]
+}
+
+export type AudioPlaybackEngineMode = 'gemini-tts' | 'web-speech' | 'unavailable'
+
+export function isGeminiVoiceSelection(voiceURI: string | null | undefined): boolean {
+  return typeof voiceURI === 'string' && voiceURI.startsWith('gemini:')
 }
 
 export interface SpeechVoiceInfo {
@@ -317,6 +346,21 @@ export function buildBriefingUtterances(
 
   items.forEach((item, index) => {
     const cleanTitle = item.title.trim()
+    const cleanSpoken = item.spokenText?.trim() ?? ''
+
+    if (cleanSpoken) {
+      for (const chunk of chunkSentences(ensureTerminalPunctuation(cleanSpoken))) {
+        utterances.push({
+          text: chunk,
+          itemId: item.id,
+          itemIndex: index,
+          itemTitle: cleanTitle || item.source,
+          kind: 'tldr',
+        })
+      }
+      return
+    }
+
     const cleanTldr = item.tldr.trim()
 
     if (cleanTitle) {

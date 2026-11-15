@@ -2,15 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   BookOpen,
+  Compass,
   CornerDownLeft,
   FileText,
   GitBranch,
+  HelpCircle,
   History,
   Info,
   Keyboard,
   Layers,
+  Mail,
   Newspaper,
   Rss,
+  Scale,
   Search,
   Settings,
   Shield,
@@ -61,12 +65,16 @@ function targetIcon(target: CommandTarget) {
     if (target.viewId === 'briefing') return Newspaper
     if (target.viewId === 'radar') return Activity
     if (target.viewId === 'system') return GitBranch
+    if (target.viewId === 'guide') return Compass
     if (target.viewId === 'docs') return BookOpen
     if (target.viewId === 'shortcuts') return Keyboard
     if (target.viewId === 'settings') return Settings
     if (target.viewId === 'about') return Info
     if (target.viewId === 'changelog') return History
+    if (target.viewId === 'faq') return HelpCircle
     if (target.viewId === 'privacy') return Shield
+    if (target.viewId === 'terms') return Scale
+    if (target.viewId === 'contact') return Mail
     return Layers
   }
   if (target.kind === 'feed') return Rss

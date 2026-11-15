@@ -3,11 +3,15 @@ export type AppRoute =
   | 'briefing'
   | 'radar'
   | 'system'
+  | 'guide'
   | 'docs'
   | 'shortcuts'
   | 'about'
   | 'changelog'
+  | 'faq'
   | 'privacy'
+  | 'terms'
+  | 'contact'
   | 'settings'
   | 'not-found'
 
@@ -51,10 +55,17 @@ export const ROUTES: ReadonlyArray<RouteMeta> = [
     documentTitle: 'System & Feed Health — Resurrected Reader',
   },
   {
+    id: 'guide',
+    path: '/guide',
+    label: 'User Guide',
+    description: 'Step-by-step guide for Feed, Briefing audio, Radar, Second Brain, Newsletters, MCP & Settings',
+    documentTitle: 'User Guide — Resurrected Reader',
+  },
+  {
     id: 'docs',
     path: '/docs',
     label: 'Docs',
-    description: 'Getting started, scoring model, OPML, Kiro export & MCP',
+    description: 'Technical reference: scoring model, OPML, Kiro export, MCP & A2A',
     documentTitle: 'Documentation — Resurrected Reader',
   },
   {
@@ -86,12 +97,50 @@ export const ROUTES: ReadonlyArray<RouteMeta> = [
     documentTitle: 'Changelog — Resurrected Reader',
   },
   {
+    id: 'faq',
+    path: '/faq',
+    label: 'FAQ',
+    description: 'Answers on deterministic scoring, local storage, AI keys, audio fallback & MCP',
+    documentTitle: 'FAQ — Resurrected Reader',
+  },
+  {
     id: 'privacy',
     path: '/privacy',
     label: 'Privacy Policy',
-    description: 'Local-first storage, RSS proxies, server-side Gemini & zero tracking',
+    description: 'Local-first storage, RSS proxies, server-side AI & zero tracking',
     documentTitle: 'Privacy Policy — Resurrected Reader',
   },
+  {
+    id: 'terms',
+    path: '/terms',
+    label: 'Terms of Service',
+    description: 'MIT open-source license, feed attribution, and no-warranty terms',
+    documentTitle: 'Terms of Service — Resurrected Reader',
+  },
+  {
+    id: 'contact',
+    path: '/contact',
+    label: 'Contact & Support',
+    description: 'Project email support, GitHub repository & self-service diagnostics',
+    documentTitle: 'Contact & Support — Resurrected Reader',
+  },
+]
+
+export const FOOTER_ROUTES: ReadonlyArray<{ route: NavigableRoute; label: string }> = [
+  { route: 'feed', label: 'Feed' },
+  { route: 'briefing', label: 'Briefing' },
+  { route: 'radar', label: 'Signal Radar' },
+  { route: 'system', label: 'System & Health' },
+  { route: 'guide', label: 'User Guide' },
+  { route: 'docs', label: 'Docs' },
+  { route: 'shortcuts', label: 'Shortcuts' },
+  { route: 'settings', label: 'Settings' },
+  { route: 'about', label: 'About' },
+  { route: 'changelog', label: 'Changelog' },
+  { route: 'faq', label: 'FAQ' },
+  { route: 'privacy', label: 'Privacy Policy' },
+  { route: 'terms', label: 'Terms of Service' },
+  { route: 'contact', label: 'Contact' },
 ]
 
 const PATH_TO_ROUTE = new Map<string, NavigableRoute>(

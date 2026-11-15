@@ -3,7 +3,7 @@ import { cloudflare } from '@cloudflare/vite-plugin'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
-import { cacheAsset, cacheNavigation, cacheRss } from './src/lib/pwa/cachePolicy'
+import { cacheAsset, cacheNavigation, cacheRss } from './src/lib/pwa/cachePolicy.ts'
 
 function stripUnusedOnnxWasmAssets(): Plugin {
   return {
@@ -22,7 +22,10 @@ function stripUnusedOnnxWasmAssets(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-    react(), tailwindcss(), cloudflare({ viteEnvironment: { name: 'worker' } }),
+    react(), tailwindcss(), cloudflare({
+      viteEnvironment: { name: 'worker' },
+      remoteBindings: Boolean(process.env.CLOUDFLARE_API_TOKEN),
+    }),
     stripUnusedOnnxWasmAssets(),
     VitePWA({
       registerType: 'autoUpdate',

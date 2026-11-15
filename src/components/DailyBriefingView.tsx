@@ -10,18 +10,23 @@ import {
 } from 'lucide-react'
 import { motion } from 'motion/react'
 import { isNewSince, runWithConcurrency, selectDailyBriefingItems } from '../lib/briefing'
+import type { ExtractedArticle } from '../lib/extract'
 import type { FeedItem } from '../lib/feeds'
 import { summarize, timeAgo } from '../lib/format'
 import type { GeminiSummary } from '../lib/kiroTask'
 import type { NavigableRoute } from '../lib/routes'
+import { buildSpokenBriefingScript } from '../lib/spokenScript'
 import {
   clampSpeechRate,
   createBriefingPlayer,
+  isGeminiVoiceSelection,
   isSpeechSupported,
   listVoices,
   subscribeVoices,
+  type AudioPlaybackEngineMode,
   type BriefingPlaybackStatus,
   type BriefingPlayer,
+  type BriefingTtsStatus,
   type DailyBriefingItem,
   type SpeechVoiceInfo,
 } from '../lib/tts'
@@ -36,6 +41,7 @@ import { Skeleton } from './ui/skeleton'
 interface DailyBriefingViewProps {
   items: FeedItem[]
   summaries: Record<string, GeminiSummary>
+  extractedArticles?: Record<string, ExtractedArticle>
   summaryLoadingIds: Record<string, boolean>
   summaryErrors: Record<string, string>
   lastVisitIso: string | null
@@ -50,6 +56,11 @@ interface DailyBriefingViewProps {
     audioRate?: number
   }) => void
   audioStatus?: BriefingPlaybackStatus
+  audioPreparing?: boolean
+  audioEngineMode?: AudioPlaybackEngineMode
+  audioCacheStatus?: 'HIT' | 'MISS' | 'BYPASS' | null
+  audioModeNote?: string | null
+  ttsStatus?: BriefingTtsStatus
   audioItemId?: string | null
   audioItemIndex?: number
   audioItemTotal?: number
@@ -62,6 +73,7 @@ interface DailyBriefingViewProps {
 export default function DailyBriefingView({
   items,
   summaries,
+  extractedArticles,
   summaryLoadingIds,
   summaryErrors,
   lastVisitIso,
@@ -73,6 +85,11 @@ export default function DailyBriefingView({
   audioRate,
   onAudioSettingsChange,
   audioStatus,
+  audioPreparing = false,
+  audioEngineMode,
+  audioCacheStatus = null,
+  audioModeNote = null,
+  ttsStatus,
   audioItemId,
   audioItemIndex,
   audioItemTotal,
@@ -113,8 +130,10 @@ export default function DailyBriefingView({
     audioItemTotal !== undefined ? audioItemTotal : localItemTotal
   const effectiveError = audioError !== undefined ? audioError : localError
 
+  const geminiTtsAvailable = Boolean(ttsStatus?.available)
+  const canUseAudio = geminiTtsAvailable || speechSupported
+
   useEffect(() => {
-    setVoices(listVoices())
     return subscribeVoices(() => {
       setVoices(listVoices())
     })
@@ -150,15 +169,30 @@ export default function DailyBriefingView({
 
   const briefingItems = useMemo<DailyBriefingItem[]>(
     () =>
-      topFive.map((item) => ({
-        id: item.id,
-        title: item.title,
-        url: item.link,
-        score: item.score ?? 0,
-        source: item.feedTitle,
-        tldr: summaries[item.id]?.tldr || summarize(item.description, 1),
-      })),
-    [topFive, summaries],
+      topFive.map((item) => {
+        const ai = summaries[item.id]
+        const extracted = extractedArticles?.[item.id]?.markdown
+        return {
+          id: item.id,
+          title: item.title,
+          url: item.link,
+          score: item.score ?? 0,
+          source: item.feedTitle,
+          pubDate: item.pubDate,
+          tldr: ai?.tldr || summarize(item.description, 1),
+          takeaways: ai?.takeaways,
+          whyMatters: ai?.whyMatters,
+          description: item.description,
+          extractedText: extracted,
+          scoreDimensions: item.scoreDimensions,
+        }
+      }),
+    [topFive, summaries, extractedArticles],
+  )
+
+  const spokenScript = useMemo(
+    () => buildSpokenBriefingScript(briefingItems),
+    [briefingItems],
   )
 
   const readyCount = topFive.filter((it) => Boolean(summaries[it.id])).length
@@ -195,7 +229,7 @@ export default function DailyBriefingView({
   }
 
   const handlePlay = () => {
-    if (!speechSupported || briefingItems.length === 0) return
+    if (!canUseAudio || briefingItems.length === 0 || audioPreparing) return
     if (effectiveStatus === 'paused') {
       if (onTogglePauseAudio) {
         onTogglePauseAudio()
@@ -209,8 +243,14 @@ export default function DailyBriefingView({
     } else {
       setLocalError(null)
       setLocalItemTotal(briefingItems.length)
-      localPlayerRef.current?.play(briefingItems, {
-        voiceURI: effectiveVoiceURI,
+      const enriched = briefingItems.map((item, idx) => ({
+        ...item,
+        spokenText: spokenScript.segments[idx]?.text ?? `${item.title}. ${item.tldr}`,
+      }))
+      localPlayerRef.current?.play(enriched, {
+        voiceURI: isGeminiVoiceSelection(effectiveVoiceURI)
+          ? null
+          : effectiveVoiceURI,
         rate: effectiveRate,
       })
     }
@@ -239,7 +279,9 @@ export default function DailyBriefingView({
       onAudioSettingsChange({ audioVoiceURI: normalized })
     } else {
       setLocalVoiceURI(normalized)
-      localPlayerRef.current?.setOptions({ voiceURI: normalized })
+      localPlayerRef.current?.setOptions({
+        voiceURI: isGeminiVoiceSelection(normalized) ? null : normalized,
+      })
     }
   }
 
@@ -259,15 +301,32 @@ export default function DailyBriefingView({
       ? briefingItems[effectiveItemIndex].title
       : ''
 
-  const liveAnnouncement = !speechSupported
-    ? 'Audio briefing unavailable: your browser does not support Web Speech synthesis.'
+  const effectiveMode: AudioPlaybackEngineMode =
+    audioEngineMode ??
+    (geminiTtsAvailable &&
+    (isGeminiVoiceSelection(effectiveVoiceURI) || effectiveVoiceURI === null)
+      ? 'gemini-tts'
+      : speechSupported
+        ? 'web-speech'
+        : 'unavailable')
+
+  const liveAnnouncement = !canUseAudio
+    ? 'Audio briefing unavailable: Gemini TTS is unconfigured and Web Speech synthesis is unsupported in this browser.'
     : effectiveError
       ? effectiveError
-      : effectiveStatus === 'speaking' && effectiveItemIndex >= 0
-        ? `Đang đọc mục ${effectiveItemIndex + 1}/${Math.max(effectiveItemTotal, briefingItems.length)}${activeItemTitle ? `: ${activeItemTitle}` : ''}.`
-        : effectiveStatus === 'paused' && effectiveItemIndex >= 0
-          ? `Đã tạm dừng ở mục ${effectiveItemIndex + 1}/${Math.max(effectiveItemTotal, briefingItems.length)}.`
-          : ''
+      : audioPreparing
+        ? 'Generating spoken-script MP3 via Gemini 3.8 Flash-Lite TTS...'
+        : effectiveStatus === 'speaking' && effectiveItemIndex >= 0
+          ? `Reading story ${effectiveItemIndex + 1} of ${Math.max(effectiveItemTotal, briefingItems.length)}${activeItemTitle ? `: ${activeItemTitle}` : ''}.`
+          : effectiveStatus === 'paused' && effectiveItemIndex >= 0
+            ? `Paused at story ${effectiveItemIndex + 1} of ${Math.max(effectiveItemTotal, briefingItems.length)}.`
+            : audioModeNote ?? ''
+
+  const selectValue =
+    effectiveVoiceURI &&
+    (!isGeminiVoiceSelection(effectiveVoiceURI) || geminiTtsAvailable)
+      ? effectiveVoiceURI
+      : ''
 
   return (
     <PageShell
@@ -324,28 +383,37 @@ export default function DailyBriefingView({
                 type="button"
                 size="sm"
                 disabled={
-                  !speechSupported ||
+                  !canUseAudio ||
                   briefingItems.length === 0 ||
-                  effectiveStatus === 'speaking'
+                  effectiveStatus === 'speaking' ||
+                  audioPreparing
                 }
                 aria-pressed={effectiveStatus === 'speaking'}
                 aria-label={
                   effectiveStatus === 'paused'
                     ? 'Resume audio briefing'
-                    : 'Play audio briefing'
+                    : audioPreparing
+                      ? 'Preparing audio briefing'
+                      : 'Play audio briefing'
                 }
                 onClick={handlePlay}
                 className="h-7 gap-1.5 px-2.5 text-xs font-medium"
               >
                 <Play aria-hidden="true" className="size-3.5" />
-                <span>{effectiveStatus === 'paused' ? 'Resume' : 'Play'}</span>
+                <span>
+                  {audioPreparing
+                    ? 'Preparing…'
+                    : effectiveStatus === 'paused'
+                      ? 'Resume'
+                      : 'Play'}
+                </span>
               </Button>
 
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!speechSupported || effectiveStatus !== 'speaking'}
+                disabled={!canUseAudio || effectiveStatus !== 'speaking'}
                 aria-pressed={effectiveStatus === 'paused'}
                 aria-label="Pause audio briefing"
                 onClick={handlePause}
@@ -359,7 +427,10 @@ export default function DailyBriefingView({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!speechSupported || effectiveStatus === 'idle'}
+                disabled={
+                  !canUseAudio ||
+                  (effectiveStatus === 'idle' && !audioPreparing)
+                }
                 aria-label="Stop audio briefing"
                 onClick={handleStop}
                 className="h-7 gap-1.5 border-zinc-200 bg-white px-2.5 text-xs shadow-none"
@@ -367,6 +438,19 @@ export default function DailyBriefingView({
                 <Square aria-hidden="true" className="size-3" />
                 <span>Stop</span>
               </Button>
+
+              <Badge
+                variant="outline"
+                className="h-5 rounded px-1.5 font-mono text-[10px] font-normal text-zinc-600"
+              >
+                {effectiveMode === 'gemini-tts'
+                  ? `gemini-3.8-flash-lite-tts${audioCacheStatus ? ` · R2 ${audioCacheStatus}` : ''}`
+                  : effectiveMode === 'web-speech'
+                    ? geminiTtsAvailable
+                      ? 'Web Speech API (on-device)'
+                      : 'Web Speech API (Gemini TTS unconfigured)'
+                    : 'Audio unavailable'}
+              </Badge>
             </div>
 
             <div className="flex flex-wrap items-center gap-4">
@@ -379,17 +463,34 @@ export default function DailyBriefingView({
                 </label>
                 <select
                   id="briefing-voice-select"
-                  disabled={!speechSupported}
-                  value={effectiveVoiceURI ?? ''}
+                  disabled={!canUseAudio}
+                  value={selectValue}
                   onChange={(e) => handleVoiceChange(e.target.value)}
-                  className="h-7 max-w-48 rounded-md border border-zinc-200 bg-white px-2 text-xs text-zinc-900 outline-none focus-visible:border-zinc-950 disabled:opacity-50"
+                  className="h-7 max-w-56 rounded-md border border-zinc-200 bg-white px-2 text-xs text-zinc-900 outline-none focus-visible:border-zinc-950 disabled:opacity-50"
                 >
-                  <option value="">System default</option>
-                  {voices.map((voice) => (
-                    <option key={voice.voiceURI} value={voice.voiceURI}>
-                      {voice.name} ({voice.lang})
-                    </option>
-                  ))}
+                  <option value="">
+                    {geminiTtsAvailable
+                      ? `Gemini TTS default (${ttsStatus?.defaultVoice ?? 'Kore'})`
+                      : 'System default (Web Speech)'}
+                  </option>
+                  {geminiTtsAvailable && ttsStatus && ttsStatus.voices.length > 0 && (
+                    <optgroup label="Gemini 3.8 Flash-Lite TTS (MP3)">
+                      {ttsStatus.voices.map((voice) => (
+                        <option key={voice.id} value={voice.id}>
+                          {voice.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {speechSupported && voices.length > 0 && (
+                    <optgroup label="On-device Web Speech">
+                      {voices.map((voice) => (
+                        <option key={voice.voiceURI} value={voice.voiceURI}>
+                          {voice.name} ({voice.lang})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </div>
 
@@ -406,7 +507,7 @@ export default function DailyBriefingView({
                   min={0.5}
                   max={2}
                   step={0.1}
-                  disabled={!speechSupported}
+                  disabled={!canUseAudio}
                   value={effectiveRate}
                   onChange={(e) => handleRateChange(e.target.value)}
                   className="h-1.5 w-24 cursor-pointer accent-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
@@ -422,18 +523,38 @@ export default function DailyBriefingView({
             <p
               aria-live="polite"
               className={
-                !speechSupported || effectiveError
+                !canUseAudio || effectiveError
                   ? 'font-medium text-zinc-800'
                   : 'text-zinc-600'
               }
             >
               {liveAnnouncement ||
-                `Ready to read ${briefingItems.length} headlines and 1-line TL;DRs.`}
+                `Spoken script ready: ${spokenScript.wordCount} words (~${spokenScript.estimatedMinutes} min) across ${briefingItems.length} stories.`}
             </p>
             <span className="text-[11px] text-zinc-500">
-              Runs on-device via Web Speech API — no briefing text sent to servers.
+              {effectiveMode === 'gemini-tts'
+                ? ttsStatus?.r2Bound
+                  ? 'Uses Gemini 3.8 Flash-Lite TTS MP3 cached in R2.'
+                  : 'Uses Gemini 3.8 Flash-Lite TTS MP3 (R2 bucket unbound).'
+                : geminiTtsAvailable
+                  ? 'Runs on-device via Web Speech API for the selected local voice.'
+                  : 'No Gemini TTS key configured — running honestly on-device via Web Speech API.'}
             </span>
           </div>
+
+          {briefingItems.length > 0 && (
+            <details className="mt-3 rounded-md border border-zinc-200/80 bg-white px-3 py-2">
+              <summary className="cursor-pointer text-xs font-medium text-zinc-700 select-none hover:text-zinc-950">
+                Spoken script transcript ({spokenScript.wordCount} words · ~
+                {spokenScript.estimatedMinutes} min · single narrator)
+              </summary>
+              <div className="mt-2.5 max-h-64 space-y-2 overflow-y-auto border-t border-zinc-100 pt-2.5 text-[12.5px] leading-relaxed text-zinc-700">
+                {spokenScript.script.split(/\n{2,}/).map((para, idx) => (
+                  <p key={`${idx}-${para.slice(0, 24)}`}>{para}</p>
+                ))}
+              </div>
+            </details>
+          )}
         </section>
 
         {topFive.length === 0 ? (
@@ -511,7 +632,7 @@ export default function DailyBriefingView({
                               variant="default"
                               className="bg-zinc-950 px-1.5 py-0 font-mono text-[10px] font-semibold text-white"
                             >
-                              Đang đọc
+                              Playing
                             </Badge>
                           )}
                         </div>
@@ -543,6 +664,18 @@ export default function DailyBriefingView({
                               />
                               <span>{aiSummary.tldr}</span>
                             </p>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge
+                                variant="outline"
+                                className="h-4 rounded px-1.5 font-mono text-[10px] font-normal text-zinc-500"
+                              >
+                                {aiSummary.mode === 'extractive'
+                                  ? 'extractive fallback'
+                                  : aiSummary.mode === 'workers-ai'
+                                    ? 'llama-3.2-1b-instruct'
+                                    : aiSummary.provider ?? 'server-side'}
+                              </Badge>
+                            </div>
                             {aiSummary.takeaways.length > 0 && (
                               <ul className="list-disc space-y-1 pl-5 text-[13px] text-zinc-600">
                                 {aiSummary.takeaways.slice(0, 3).map((pt) => (

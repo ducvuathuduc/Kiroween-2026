@@ -4,6 +4,7 @@ import {
   Check,
   Copy,
   ExternalLink,
+  History,
   RotateCcw,
   Share2,
   Sparkles,
@@ -22,6 +23,7 @@ import {
 import type { GeminiSummary } from '../lib/kiroTask'
 import type { TasteProfile } from '../lib/personalize'
 import { getProviderDisplayName } from '../lib/providers'
+import type { SecondBrainMatch } from '../lib/secondBrain'
 import type { ReaderDensity } from '../lib/storage'
 import ItemThumbnail from './ItemThumbnail'
 import KiroTaskModal from './KiroTaskModal'
@@ -54,6 +56,9 @@ interface ReaderPaneProps {
   onToggleSave: (id: string) => void
   onMarkUnread: (id: string) => void
   onOpenRadar?: () => void
+  relatedPastReads?: SecondBrainMatch[]
+  pastReadsCount?: number
+  onOpenPastRead?: (id: string) => void
 }
 
 export default function ReaderPane({
@@ -75,6 +80,9 @@ export default function ReaderPane({
   onToggleSave,
   onMarkUnread,
   onOpenRadar,
+  relatedPastReads = [],
+  pastReadsCount = 0,
+  onOpenPastRead,
 }: ReaderPaneProps) {
   const [actionStatus, setActionStatus] = useState('')
   const statusTimerRef = useRef<number | null>(null)
@@ -405,15 +413,23 @@ export default function ReaderPane({
                   <div className="flex items-center justify-between gap-2">
                     <span className="flex items-center gap-1.5 text-[11px] font-medium tracking-wider text-zinc-600 uppercase">
                       <Sparkles aria-hidden="true" className="size-3" />
-                      {geminiSummary?.provider
-                        ? `${getProviderDisplayName(geminiSummary.provider)} TL;DR`
-                        : 'Gemini TL;DR'}
+                      {geminiSummary?.mode === 'extractive'
+                        ? 'Extractive TL;DR'
+                        : geminiSummary?.mode === 'workers-ai'
+                          ? 'Workers AI TL;DR'
+                          : geminiSummary?.provider
+                            ? `${getProviderDisplayName(geminiSummary.provider)} TL;DR`
+                            : 'AI TL;DR'}
                     </span>
                     <Badge
                       variant="outline"
                       className="h-4 rounded px-1.5 font-mono text-[10px] font-normal text-zinc-500"
                     >
-                      server-side
+                      {geminiSummary?.mode === 'extractive'
+                        ? 'extractive fallback'
+                        : geminiSummary?.mode === 'workers-ai'
+                          ? 'llama-3.2-1b-instruct'
+                          : 'server-side'}
                     </Badge>
                   </div>
 
@@ -459,6 +475,87 @@ export default function ReaderPane({
               <p className="border-l-2 border-zinc-950 pl-4 text-[14.5px] leading-[1.7] text-zinc-800">
                 {summary}
               </p>
+
+              <section
+                aria-labelledby="past-reads-heading"
+                className="mt-6 rounded-md border border-zinc-200 bg-zinc-50/70 p-4"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h2
+                    id="past-reads-heading"
+                    className="flex items-center gap-1.5 text-[11px] font-medium tracking-wider text-zinc-600 uppercase"
+                  >
+                    <History aria-hidden="true" className="size-3" />
+                    From your past reads
+                  </h2>
+                  {relatedPastReads.length > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="h-4 rounded px-1.5 font-mono text-[10px] font-normal text-zinc-500"
+                    >
+                      {relatedPastReads.every((m) => m.matchKind === 'semantic')
+                        ? 'semantic'
+                        : 'topic-overlap'}
+                    </Badge>
+                  )}
+                </div>
+
+                {relatedPastReads.length > 0 ? (
+                  <ul className="mt-3 space-y-2">
+                    {relatedPastReads.map((match) => (
+                      <li key={match.item.id}>
+                        <button
+                          type="button"
+                          onClick={() => onOpenPastRead?.(match.item.id)}
+                          className="w-full rounded-md border border-zinc-200 bg-white p-3 text-left transition-colors hover:border-zinc-300 hover:bg-zinc-50/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <span className="text-[13px] leading-snug font-medium text-zinc-950">
+                              {match.item.title}
+                            </span>
+                            <span className="shrink-0 rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums text-zinc-700">
+                              {match.matchKind} {match.score.toFixed(2)}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[11px] text-zinc-500">
+                            {match.item.feedTitle} ·{' '}
+                            <time dateTime={match.interactedAt}>
+                              {timeAgo(match.interactedAt)}
+                            </time>
+                            {match.item.savedAt ? ' · Saved' : ' · Read'}
+                          </p>
+                          {match.sharedTopics.length > 0 && (
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                              <span className="text-[11px] text-zinc-500">
+                                Shared topics:
+                              </span>
+                              {match.sharedTopics.map((topic) => (
+                                <span
+                                  key={topic}
+                                  className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] text-zinc-700"
+                                >
+                                  {topic}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {match.why && (
+                            <p className="mt-1.5 text-[11px] text-zinc-500">
+                              {match.why}
+                            </p>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-xs leading-relaxed text-zinc-500">
+                    {pastReadsCount === 0
+                      ? 'No past reads recorded yet. Open or save articles to connect related ideas over time.'
+                      : 'No strong topic overlap found with your past reads for this article.'}
+                  </p>
+                )}
+              </section>
 
               {extractedHtml ? (
                 <section aria-label="Full article" className="mt-7">

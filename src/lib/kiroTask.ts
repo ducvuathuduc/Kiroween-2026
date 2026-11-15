@@ -8,6 +8,9 @@ export interface GeminiSummary {
   takeaways: string[]
   whyMatters: string
   provider?: AIProviderId
+  model?: string
+  mode?: 'workers-ai' | 'provider' | 'extractive'
+  fallbackReason?: string
 }
 
 export interface KiroSpecBundle {

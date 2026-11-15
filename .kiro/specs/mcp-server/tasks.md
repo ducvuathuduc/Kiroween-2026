@@ -1,0 +1,10 @@
+# Tasks — Read-Only MCP Server (Spec 2026-07-28)
+
+- [x] Read `server.ts`, `server/mcp.ts`, `server/readTools.ts`, `server/items.ts`, `server/liveAi.ts`, `server/a2a.ts`, `src/lib/briefing.ts`, `src/lib/feeds.ts`, `src/lib/radar.ts`, `src/lib/secondBrain.ts`, `src/lib/newsletter.ts`, `README.md`, `src/components/DocsPage.tsx`, `docs/resurrected-reader-system.md`, and `docs/modern-web-guidance/guides/html/html.md`.
+- [x] Author `.kiro/specs/mcp-server/{requirements.md, design.md, tasks.md}` before modifying implementation files.
+- [x] Extend `server/readTools.ts` with reusable read-only helpers (`searchItems` with `feedId`, `dailyBriefing` with `limit`, `getSignalScores`, `resurfacePastRead`, `listNewsletters`) reusing existing modules (`src/lib/radar.ts`, `src/lib/scoring.ts`, `server/liveAi.ts`, `src/lib/newsletter.ts`, `src/lib/briefing.ts`).
+- [x] Rewrite `server/mcp.ts` using TypeScript SDK v2 `createMcpHandler` from `@modelcontextprotocol/server` (no `McpAgent`, no Durable Objects) exposing ONLY the five read-only tools (`get_daily_briefing`, `get_feed_items`, `get_signal_scores`, `resurface_past_read`, `list_newsletters`) with `readOnlyHint: true` annotations and explicit authless read-only demo scope descriptions.
+- [x] Mount the shared `createReaderMcpHandler({ newsletterStore, getEnv })` and `/mcp` CORS/preflight handling in `server.ts`, and align A2A skill descriptions in `server/a2a.ts`.
+- [x] Update `README.md`, `src/components/DocsPage.tsx`, and `docs/resurrected-reader-system.md` to clearly document MCP `2026-07-28`, the 5 read-only tools, and the authless read-only demo scope.
+- [x] Update `tests/mcp.test.ts` (covering all 5 read-only tools, `readOnlyHint` annotations, Zod validation, `2026-07-28` `server/discover` + `_meta` envelope + stateless `2025-11-25` compat) and update `tests/a2a.test.ts` tool name parity checks.
+- [x] Verify `npx tsc -p tsconfig.app.json --noEmit`, `npx tsc -p tsconfig.node.json --noEmit`, `npx tsx --test tests/*.test.ts`, `npm run lint`, `npm run build`, and run a live MCP client verification against built `/mcp` confirming `get_daily_briefing` returns the real Top 5 items.

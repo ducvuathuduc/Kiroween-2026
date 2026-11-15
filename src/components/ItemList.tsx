@@ -70,6 +70,7 @@ interface ItemListProps {
   onOpenRadar: () => void
   onRefresh: () => void
   pulseError?: string
+  exploreSlotItemId?: string | null
 }
 
 function firstLine(text: string): string {
@@ -107,6 +108,7 @@ export default function ItemList({
   onOpenRadar,
   onRefresh,
   pulseError,
+  exploreSlotItemId,
 }: ItemListProps) {
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const hasActiveFilter = query.trim() !== '' || filter !== 'all'
@@ -500,6 +502,14 @@ export default function ItemList({
                                 className="shrink-0 font-mono text-[10px] font-semibold text-zinc-950"
                               >
                                 · New
+                              </span>
+                            )}
+                            {exploreSlotItemId === item.id && (
+                              <span
+                                data-explore-slot="true"
+                                className="shrink-0 rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-700"
+                              >
+                                Explore
                               </span>
                             )}
                             {semanticEnabled &&

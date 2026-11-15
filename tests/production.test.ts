@@ -3,7 +3,14 @@ import assert from 'node:assert/strict'
 import { searchCommandTargets } from '../src/lib/briefing'
 import { buildFullDataExport, formatItemAsMarkdown } from '../src/lib/export'
 import type { FeedItem, FeedSource } from '../src/lib/feeds'
-import { normalizePathname, parseRoutePath, routeToPath } from '../src/lib/routes'
+import {
+  FOOTER_ROUTES,
+  ROUTES,
+  getRouteMeta,
+  normalizePathname,
+  parseRoutePath,
+  routeToPath,
+} from '../src/lib/routes'
 import { KEYBOARD_SHORTCUTS } from '../src/lib/shortcuts'
 import { DEFAULT_SETTINGS, sanitizeSettings } from '../src/lib/storage'
 
@@ -27,15 +34,40 @@ const sampleItem: FeedItem = {
 test('parseRoutePath and routeToPath handle real routes, trailing slashes, and 404s', () => {
   assert.equal(normalizePathname('/Docs/'), '/docs')
   assert.equal(parseRoutePath('/'), 'feed')
+  assert.equal(parseRoutePath('/guide'), 'guide')
+  assert.equal(parseRoutePath('/Guide/'), 'guide')
   assert.equal(parseRoutePath('/docs'), 'docs')
+  assert.equal(parseRoutePath('/faq'), 'faq')
+  assert.equal(parseRoutePath('/FAQ/'), 'faq')
   assert.equal(parseRoutePath('/privacy/'), 'privacy')
+  assert.equal(parseRoutePath('/terms'), 'terms')
+  assert.equal(parseRoutePath('/terms/'), 'terms')
+  assert.equal(parseRoutePath('/contact'), 'contact')
+  assert.equal(parseRoutePath('/contact/'), 'contact')
   assert.equal(parseRoutePath('/shortcuts'), 'shortcuts')
   assert.equal(parseRoutePath('/about'), 'about')
   assert.equal(parseRoutePath('/changelog'), 'changelog')
   assert.equal(parseRoutePath('/settings'), 'settings')
   assert.equal(parseRoutePath('/unknown-route-xyz'), 'not-found')
+  assert.equal(routeToPath('guide'), '/guide')
+  assert.equal(routeToPath('faq'), '/faq')
+  assert.equal(routeToPath('terms'), '/terms')
+  assert.equal(routeToPath('contact'), '/contact')
   assert.equal(routeToPath('privacy'), '/privacy')
   assert.equal(routeToPath('feed'), '/')
+  assert.equal(getRouteMeta('guide')?.documentTitle, 'User Guide — Resurrected Reader')
+  assert.equal(getRouteMeta('terms')?.documentTitle, 'Terms of Service — Resurrected Reader')
+  assert.equal(getRouteMeta('faq')?.documentTitle, 'FAQ — Resurrected Reader')
+  assert.equal(getRouteMeta('contact')?.documentTitle, 'Contact & Support — Resurrected Reader')
+})
+
+test('every navigable route in ROUTES appears in FOOTER_ROUTES so no page is orphaned', () => {
+  const footerSet = new Set(FOOTER_ROUTES.map((item) => item.route))
+  for (const route of ROUTES) {
+    assert.ok(footerSet.has(route.id), `Orphaned route ${route.id} missing from FOOTER_ROUTES`)
+    assert.equal(parseRoutePath(route.path), route.id)
+    assert.equal(routeToPath(route.id), route.path)
+  }
 })
 
 test('sanitizeSettings falls back safely on malformed input and preserves valid preferences', () => {
@@ -100,7 +132,19 @@ test('KEYBOARD_SHORTCUTS lists all required interactive bindings', () => {
 })
 
 test('Command Palette search finds new production pages', () => {
-  for (const query of ['privacy', 'docs', 'settings', 'changelog', 'shortcuts', 'about']) {
+  for (const query of [
+    'guide',
+    'user guide',
+    'faq',
+    'terms',
+    'contact',
+    'privacy',
+    'docs',
+    'settings',
+    'changelog',
+    'shortcuts',
+    'about',
+  ]) {
     const matches = searchCommandTargets({ feeds: [sampleFeed], items: [sampleItem], query })
     assert.ok(matches.length > 0, `Expected command target for ${query}`)
     assert.equal(matches[0]?.kind, 'view')

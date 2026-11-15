@@ -10,6 +10,8 @@ export async function extract(url: string): Promise<ExtractedArticle | null> {
   try {
     const response = await fetch(`/api/extract?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(10_000) })
     if (!response.ok) return null
+    const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+    if (contentType && !contentType.includes('application/json')) return null
     const data: unknown = await response.json()
     if (!data || typeof data !== 'object') return null
     const value = data as Record<string, unknown>
